@@ -1,0 +1,321 @@
+name: bdia_tp_final
+
+services:
+  postgres-operacional:
+    image: pgvector/pgvector:pg17
+    container_name: bdia_tpfinal_postgres_operacional
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db:/sql:ro
+      - ./vectorial:/vectorial:ro
+      - ./scripts:/scripts:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks: [bdia_network]
+
+  pgadmin-operacional:
+    image: dpage/pgadmin4:9.5
+    container_name: bdia_tpfinal_pgadmin_operacional
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      - "127.0.0.1:${PGADMIN_PORT}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./db:/home/pgadmin/db:ro
+      - ./vectorial:/home/pgadmin/vectorial:ro
+    depends_on:
+      postgres-operacional:
+        condition: service_healthy
+    networks: [bdia_network]
+
+  mongodb-eventos:
+    image: mongo:8.0.12
+    container_name: bdia_tpfinal_mongodb_eventos
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_DATABASE: ${MONGO_DATABASE}
+    ports:
+      - "127.0.0.1:${MONGO_PORT}:27017"
+    volumes:
+      - mongodb_data:/data/db
+      - ./nosql/mongodb:/js:ro
+      - ./scripts:/scripts:ro
+      - ./data:/data/practica
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --host localhost --port 27017
+          --username "$${MONGO_INITDB_ROOT_USERNAME}"
+          --password "$${MONGO_INITDB_ROOT_PASSWORD}"
+          --authenticationDatabase admin
+          --eval "quit(db.adminCommand({ ping: 1 }).ok ? 0 : 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [bdia_network]
+
+  mongo-express-eventos:
+    image: mongo-express:1.0.2-20
+    container_name: bdia_tpfinal_mongo_express_eventos
+    restart: unless-stopped
+    environment:
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb-eventos:27017/?authSource=admin
+      ME_CONFIG_BASICAUTH_ENABLED: "true"
+      ME_CONFIG_BASICAUTH_USERNAME: ${ME_CONFIG_BASICAUTH_USERNAME}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${ME_CONFIG_BASICAUTH_PASSWORD}
+    ports:
+      - "127.0.0.1:${MONGO_EXPRESS_PORT}:8081"
+    depends_on:
+      mongodb-eventos:
+        condition: service_healthy
+    networks: [bdia_network]
+
+  redis-serving:
+    image: redis:8.0-alpine
+    container_name: bdia_tpfinal_redis_serving
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    command: >-
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly no
+    ports:
+      - "127.0.0.1:${REDIS_PORT}:6379"
+    volumes:
+      - redis_data:/data
+      - ./nosql/redis:/redis:ro
+      - ./scripts:/scripts:ro
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD} ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks: [bdia_network]
+
+  neo4j-grafo:
+    image: neo4j:5.26.0-community
+    container_name: bdia_tpfinal_neo4j_grafo
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
+      GRAFO_USER: ${NEO4J_USER}
+      GRAFO_PASSWORD: ${NEO4J_PASSWORD}
+    ports:
+      - "127.0.0.1:${NEO4J_HTTP_PORT}:7474"
+      - "127.0.0.1:${NEO4J_BOLT_PORT}:7687"
+    volumes:
+      - neo4j_data:/data
+      - ./nosql/neo4j:/cypher:ro
+      - ./scripts:/scripts:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          cypher-shell -u "$${GRAFO_USER}" -p "$${GRAFO_PASSWORD}"
+          "RETURN 1;" > /dev/null 2>&1
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    networks: [bdia_network]
+
+  minio-lake:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    container_name: bdia_tpfinal_minio_lake
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks: [bdia_network]
+
+  minio-admin:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    container_name: bdia_tpfinal_minio_admin
+    entrypoint: ["/bin/sh"]
+    command: ["-c", "while true; do sleep 3600; done"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ./data:/data/practica
+      - ./scripts:/scripts:ro
+    depends_on:
+      minio-lake:
+        condition: service_healthy
+    networks: [bdia_network]
+
+  duckdb-transformer:
+    build:
+      context: .
+      dockerfile: Dockerfile.duckdb
+    image: bdia-tpfinal-duckdb:1.4.3
+    container_name: bdia_tpfinal_duckdb_transformer
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["trap : TERM INT; sleep infinity & wait"]
+    environment:
+      MINIO_TRANSFORMADOR_USER: ${MINIO_TRANSFORMADOR_USER:-bdia_lake_transformador}
+      MINIO_TRANSFORMADOR_PASSWORD: ${MINIO_TRANSFORMADOR_PASSWORD:-transformador_local}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./duckdb_data:/workspace
+      - ./analitico:/sql:ro
+      - ./scripts:/scripts:ro
+    depends_on:
+      minio-lake:
+        condition: service_healthy
+      postgres-operacional:
+        condition: service_healthy
+    networks: [bdia_network]
+
+  orquestador:
+    build:
+      context: .
+      dockerfile: Dockerfile.orquestador
+    image: bdia-tpfinal-orquestador:1.0
+    container_name: bdia_tpfinal_orquestador
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["trap : TERM INT; sleep infinity & wait"]
+    environment:
+      POSTGRES_HOST: postgres-operacional
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MONGO_HOST: mongodb-eventos
+      MONGO_PORT: 27017
+      MONGO_DATABASE: ${MONGO_DATABASE}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      REDIS_HOST: redis-serving
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      NEO4J_URI: bolt://neo4j-grafo:7687
+      NEO4J_USER: ${NEO4J_USER}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      # Usuario de MongoDB con permiso de INSERT y nada mas
+      MONGO_INGESTA_USER: ${MONGO_INGESTA_USER:-bdia_mongo_ingesta}
+      MONGO_INGESTA_PASSWORD: ${MONGO_INGESTA_PASSWORD:-ingesta_local}
+      MODELO_EMBEDDING: ${MODELO_EMBEDDING}
+      EMBEDDINGS_MODO: ${EMBEDDINGS_MODO:-modelo}
+      SEMILLA: ${SEMILLA:-42}
+      ESCALA: ${ESCALA:-media}
+    volumes:
+      - ./orquestador:/workspace/orquestador:ro
+      - ./data:/workspace/data
+      - modelo_cache:/root/.cache
+    depends_on:
+      postgres-operacional:
+        condition: service_healthy
+      mongodb-eventos:
+        condition: service_healthy
+      redis-serving:
+        condition: service_healthy
+      neo4j-grafo:
+        condition: service_healthy
+    networks: [bdia_network]
+
+  api-recomendador:
+    # Perfil "consumo": este servicio NO arranca con el resto, es la api
+    profiles: ["consumo"]
+    build:
+      context: .
+      dockerfile: Dockerfile.orquestador
+    image: bdia-tpfinal-orquestador:1.0
+    container_name: bdia_tpfinal_api_recomendador
+    restart: unless-stopped
+    working_dir: /workspace/orquestador
+    command: ["uvicorn", "recomendador_api:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      # usuario de menor privilegio que le alcanza en cada motor
+      POSTGRES_HOST: postgres-operacional
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      API_DB_USER: ${API_DB_USER}
+      API_DB_PASSWORD: ${API_DB_PASSWORD}
+      MONGO_HOST: mongodb-eventos
+      MONGO_PORT: 27017
+      MONGO_DATABASE: ${MONGO_DATABASE}
+      MONGO_LECTURA_USER: ${MONGO_LECTURA_USER:-bdia_mongo_lectura}
+      MONGO_LECTURA_PASSWORD: ${MONGO_LECTURA_PASSWORD:-lectura_local}
+      REDIS_HOST: redis-serving
+      REDIS_PORT: 6379
+      REDIS_LECTURA_USER: ${REDIS_LECTURA_USER:-app_lectura}
+      REDIS_LECTURA_PASSWORD: ${REDIS_LECTURA_PASSWORD:-lectura_local}
+      NEO4J_URI: bolt://neo4j-grafo:7687
+      NEO4J_CONSULTA_USER: ${NEO4J_CONSULTA_USER:-bdia_grafo_consulta}
+      NEO4J_CONSULTA_PASSWORD: ${NEO4J_CONSULTA_PASSWORD:-consulta_local}
+      MODELO_EMBEDDING: ${MODELO_EMBEDDING}
+      EMBEDDINGS_MODO: ${EMBEDDINGS_MODO:-modelo}
+    ports:
+      - "127.0.0.1:${API_PORT}:8000"
+    volumes:
+      - ./orquestador:/workspace/orquestador:ro
+      - modelo_cache:/root/.cache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/salud"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+    depends_on:
+      postgres-operacional:
+        condition: service_healthy
+      redis-serving:
+        condition: service_healthy
+    networks: [bdia_network]
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  mongodb_data:
+  redis_data:
+  neo4j_data:
+  minio_data:
+  modelo_cache:
+
+networks:
+  bdia_network:
+    driver: bridge

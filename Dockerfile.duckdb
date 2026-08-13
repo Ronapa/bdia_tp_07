@@ -1,0 +1,10 @@
+# imagen con el binario de DuckDB para procesar las capas del lakehouse
+
+FROM duckdb/duckdb:1.4.3 AS duckdb
+
+FROM debian:12.10-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=duckdb /duckdb /usr/local/bin/duckdb
+ENTRYPOINT ["/usr/local/bin/duckdb"]

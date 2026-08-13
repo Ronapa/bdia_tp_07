@@ -1,0 +1,33 @@
+# Variables locales
+.env
+.env.local
+
+# generados por el pipeline
+data/generado/
+duckdb_data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+
+# Agentes y asistentes de IA
+.claude/
+.cursor/
+.agents/
+AGENTS.md
+CLAUDE.md
+
+# Logs y temporales
+*.log
+tmp/
+temp/
