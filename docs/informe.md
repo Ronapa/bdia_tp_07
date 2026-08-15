@@ -9,12 +9,13 @@
 
 **Integrantes**
 
-| Integrante | Aportes principales |
-|---|---|
-| *(completar)* | *(completar)* |
-| *(completar)* | *(completar)* |
-| *(completar)* | *(completar)* |
-| *(completar)* | *(completar)* |
+| Integrante | Usuario de GitHub | Aportes principales |
+|---|---|---|
+| Federica Pavese | `federica-pavese` | *(completar)* |
+| Leandro Saraco | `lsaraco` | *(completar)* |
+| Maximiliano Lulic | `maxisoadgh` | *(completar)* |
+| Pablo Salvagni | `PabloSalvagni` | *(completar)* |
+| Rodrigo Parra | `Ronapa` | *(completar)* |
 
 ---
 
@@ -251,10 +252,10 @@ Usar un motor distinto por tipo de pregunta no es gratuito. Se declara explícit
 
 La contrapartida es que cada consulta corre en el motor que la resuelve bien. El umbral de
 decisión es concreto: **por debajo de ~10⁵ eventos diarios, PostgreSQL solo sería la elección
-correcta.** El dataset de ejemplo (§2.2: 113.341 eventos en total, no por día) está deliberadamente
-por debajo de ese umbral porque su función es verificar la arquitectura, no justificar su
-necesidad; el diseño apunta al escenario donde el tráfico real ya superó ese umbral, que es el que
-se proyecta en §14.1.
+correcta.** El dataset de ejemplo (§2.2) está deliberadamente por debajo de ese umbral, y además
+concentra en una sola corrida un volumen que en producción correspondería a varios días: su función
+es verificar la arquitectura, no justificar su necesidad. El diseño apunta al escenario donde el
+tráfico real ya superó ese umbral, que es el que se proyecta en §14.1.
 
 ### 3.5 Decisiones de diseño que resultaron determinantes
 
