@@ -1,0 +1,155 @@
+%% Modelo conceptual - NexoMedia
+%% Diagrama entidad-relacion, independiente de la tecnologia.
+%% Render: docker run --rm -v "$PWD:/data" minlag/mermaid-cli -i modelo_conceptual.mmd -o modelo_conceptual.png
+
+erDiagram
+    USUARIO ||--o{ SUSCRIPCION : contrata
+    USUARIO }o--o{ ROL : tiene
+    USUARIO ||--o{ PREFERENCIA : declara
+    USUARIO ||--o{ CONSENTIMIENTO : otorga
+    USUARIO ||--o{ CONTENIDO : escribe
+    USUARIO ||--o{ EVENTO : genera
+    USUARIO ||--o{ IMPRESION : recibe
+    USUARIO ||--o{ COMENTARIO : publica
+    USUARIO ||--o| PERFIL_VECTORIAL : resume
+
+    PLAN ||--o{ SUSCRIPCION : define
+
+    SECCION ||--o{ SECCION : contiene
+    SECCION ||--o{ CONTENIDO : agrupa
+    SECCION ||--o{ PREFERENCIA : referencia
+
+    TIPO_CONTENIDO ||--o{ CONTENIDO : clasifica
+
+    CONTENIDO }o--o{ ETIQUETA : describe
+    CONTENIDO ||--o{ VERSION : versiona
+    CONTENIDO ||--o{ MODERACION : recibe
+    CONTENIDO ||--o{ EVENTO : recibe
+    CONTENIDO ||--o{ IMPRESION : aparece_en
+    CONTENIDO ||--o{ COMENTARIO : recibe
+    COMENTARIO ||--o{ MODERACION : recibe
+    CONTENIDO ||--o| CUERPO : desarrolla
+    CONTENIDO ||--o| EMBEDDING : representa
+    CONTENIDO }o--o{ CONTENIDO : similar_a
+
+    ESTRATEGIA ||--o{ IMPRESION : genera
+    EXPERIMENTO ||--o{ ASIGNACION : reparte
+    USUARIO ||--o{ ASIGNACION : participa
+
+    USUARIO {
+        id identificador
+        email dato_sensible
+        alias texto
+        pais texto
+        anio_nacimiento dato_sensible
+        consentimiento booleano
+        activo booleano
+    }
+
+    PLAN {
+        codigo texto
+        nivel_acceso entero_de_cero_a_dos
+    }
+
+    SUSCRIPCION {
+        desde fecha
+        hasta fecha_opcional
+        estado activa_vencida_cancelada
+    }
+
+    SECCION {
+        slug texto
+        nombre texto
+        seccion_padre jerarquia_autoreferenciada
+    }
+
+    CONTENIDO {
+        titulo texto
+        estado borrador_revision_publicado_despublicado_archivado
+        nivel_acceso entero_de_cero_a_dos
+        fecha_publicacion fecha
+        vigente_hasta fecha_opcional
+        metadatos semiestructurado
+    }
+
+    ETIQUETA {
+        slug texto
+        nombre texto
+    }
+
+    VERSION {
+        numero entero
+        cambios semiestructurado
+    }
+
+    MODERACION {
+        objeto_tipo contenido_o_comentario
+        accion aprobado_rechazado_despublicado_marcado
+        motivo texto
+    }
+
+    EVENTO {
+        tipo_evento diez_valores
+        ocurrido_en marca_temporal
+        contexto semiestructurado
+        metricas variable_segun_tipo
+    }
+
+    IMPRESION {
+        posicion entero
+        score decimal
+        superficie home_seccion_articulo_newsletter_busqueda
+        clic booleano
+        mostrado_en marca_temporal
+    }
+
+    ESTRATEGIA {
+        codigo texto
+        version texto
+        motor postgresql_pgvector_duckdb_neo4j_redis
+    }
+
+    CUERPO {
+        bloques no_estructurado_heterogeneo
+        transcripcion opcional
+    }
+
+    EMBEDDING {
+        vector vector_denso
+        modelo texto
+        texto_fuente texto
+    }
+
+    PERFIL_VECTORIAL {
+        vector vector_denso
+        cantidad_eventos entero
+    }
+
+    PREFERENCIA {
+        tipo sigue_o_no_interesa
+        peso decimal
+    }
+
+    CONSENTIMIENTO {
+        finalidad personalizacion_analitica_comunicaciones
+        otorgado booleano
+    }
+
+    COMENTARIO {
+        texto no_estructurado
+        estado_moderacion texto
+        respuestas embebidas
+    }
+
+    ROL {
+        codigo lector_editor_moderador_analista_administrador
+    }
+
+    EXPERIMENTO {
+        codigo texto
+        desde fecha
+    }
+
+    ASIGNACION {
+        variante control_o_tratamiento
+    }

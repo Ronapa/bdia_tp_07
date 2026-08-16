@@ -1,0 +1,246 @@
+%% Modelo logico relacional - PostgreSQL
+%% Tablas, columnas, claves primarias y foraneas. Ver db/estructura/ para el DDL completo.
+%% Render: docker run --rm -v "$PWD:/data" minlag/mermaid-cli -i modelo_logico.mmd -o modelo_logico.png
+
+erDiagram
+    roles ||--o{ usuarios_roles : ""
+    usuarios ||--o{ usuarios_roles : ""
+    planes ||--o{ suscripciones : ""
+    usuarios ||--o{ suscripciones : ""
+    usuarios ||--o{ consentimientos : ""
+    usuarios ||--o{ preferencias_usuario : ""
+    secciones ||--o{ preferencias_usuario : ""
+    etiquetas ||--o{ preferencias_usuario : ""
+
+    secciones ||--o{ secciones : "seccion_padre_id"
+    secciones ||--o{ contenidos : ""
+    tipos_contenido ||--o{ contenidos : ""
+    usuarios ||--o{ contenidos : "autor_id"
+    contenidos ||--o{ contenidos_etiquetas : ""
+    etiquetas ||--o{ contenidos_etiquetas : ""
+    contenidos ||--o{ versiones_contenido : ""
+    contenidos ||--o{ moderaciones : ""
+    usuarios ||--o{ moderaciones : "moderador_id"
+
+    contenidos ||--o| embeddings_contenido : ""
+    usuarios ||--o| perfiles_usuario : ""
+    contenidos ||--o{ ranking_items_similares : ""
+
+    estrategias ||--o{ impresiones : ""
+    usuarios ||--o{ impresiones : ""
+    contenidos ||--o{ impresiones : ""
+    experimentos_ab ||--o{ asignaciones_ab : ""
+    usuarios ||--o{ asignaciones_ab : ""
+
+    dim_fecha ||--o{ fact_consumo_diario : ""
+    dim_contenido ||--o{ fact_consumo_diario : ""
+    dim_fecha ||--o{ fact_impresiones_diario : ""
+    dim_estrategia ||--o{ fact_impresiones_diario : ""
+
+    usuarios {
+        BIGSERIAL id PK
+        TEXT email_hash UK "HMAC-SHA256 con sal"
+        BYTEA email_cifrado "pgp_sym_encrypt"
+        TEXT alias
+        TEXT pais
+        INTEGER anio_nacimiento "CHECK 1920-2012"
+        BOOLEAN consentimiento_personalizacion
+        BOOLEAN activo
+        TIMESTAMPTZ fecha_alta
+    }
+
+    roles {
+        SERIAL id PK
+        TEXT codigo UK
+        TEXT nombre
+    }
+
+    usuarios_roles {
+        BIGINT usuario_id PK,FK
+        INTEGER rol_id PK,FK
+        TIMESTAMPTZ otorgado_en
+    }
+
+    planes {
+        SERIAL id PK
+        TEXT codigo UK
+        INTEGER nivel_acceso "CHECK 0-2"
+    }
+
+    suscripciones {
+        BIGSERIAL id PK
+        BIGINT usuario_id FK
+        INTEGER plan_id FK
+        TIMESTAMPTZ desde
+        TIMESTAMPTZ hasta "NULL si vigente"
+        TEXT estado "indice unico parcial WHERE activa"
+    }
+
+    consentimientos {
+        BIGSERIAL id PK
+        BIGINT usuario_id FK
+        TEXT finalidad
+        BOOLEAN otorgado
+    }
+
+    preferencias_usuario {
+        BIGSERIAL id PK
+        BIGINT usuario_id FK
+        INTEGER seccion_id FK "XOR con etiqueta_id"
+        INTEGER etiqueta_id FK
+        TEXT tipo_preferencia "sigue o no_interesa"
+        NUMERIC peso
+    }
+
+    secciones {
+        SERIAL id PK
+        TEXT slug UK
+        TEXT nombre
+        INTEGER seccion_padre_id FK "autoreferencia"
+        BOOLEAN activa
+    }
+
+    tipos_contenido {
+        SERIAL id PK
+        TEXT codigo UK
+        BOOLEAN admite_duracion
+    }
+
+    etiquetas {
+        SERIAL id PK
+        TEXT slug UK
+        TEXT nombre
+    }
+
+    contenidos {
+        BIGSERIAL id PK
+        TEXT titulo
+        TEXT bajada
+        INTEGER tipo_contenido_id FK
+        INTEGER seccion_id FK
+        BIGINT autor_id FK
+        TEXT estado "CHECK 5 valores"
+        INTEGER nivel_acceso "CHECK 0-2"
+        TIMESTAMPTZ fecha_publicacion
+        TIMESTAMPTZ vigente_hasta
+        TEXT cuerpo_ref UK "puntero a MongoDB"
+        JSONB metadatos "indice GIN"
+    }
+
+    contenidos_etiquetas {
+        BIGINT contenido_id PK,FK
+        INTEGER etiqueta_id PK,FK
+        NUMERIC relevancia
+    }
+
+    versiones_contenido {
+        BIGSERIAL id PK
+        BIGINT contenido_id FK
+        INTEGER numero_version "UK con contenido_id"
+        BIGINT editor_id FK
+        JSONB cambios
+    }
+
+    moderaciones {
+        BIGSERIAL id PK
+        TEXT objeto_tipo "contenido o comentario"
+        TEXT objeto_id "referencia polimorfica"
+        BIGINT contenido_id FK
+        BIGINT moderador_id FK
+        TEXT accion
+    }
+
+    embeddings_contenido {
+        BIGINT contenido_id PK,FK
+        VECTOR embedding "384 dims, HNSW + IVFFlat"
+        TEXT modelo_embedding
+        TEXT texto_fuente
+    }
+
+    perfiles_usuario {
+        BIGINT usuario_id PK,FK
+        VECTOR embedding "384 dims, centroide"
+        INTEGER cantidad_eventos
+    }
+
+    ranking_items_similares {
+        BIGINT contenido_id PK,FK
+        BIGINT contenido_similar_id PK,FK
+        TEXT origen "PK: embedding, coocurrencia, grafo"
+        NUMERIC score
+    }
+
+    estrategias {
+        SERIAL id PK
+        TEXT codigo "UK con version"
+        TEXT version
+        TEXT motor
+        BOOLEAN activa
+    }
+
+    impresiones {
+        BIGSERIAL id PK "PK compuesta con mostrado_en"
+        BIGINT usuario_id FK
+        BIGINT contenido_id FK
+        INTEGER estrategia_id FK
+        SMALLINT posicion
+        NUMERIC score
+        TEXT superficie
+        TIMESTAMPTZ mostrado_en PK "PARTITION BY RANGE"
+        BOOLEAN clic
+    }
+
+    experimentos_ab {
+        SERIAL id PK
+        TEXT codigo UK
+        TIMESTAMPTZ desde
+    }
+
+    asignaciones_ab {
+        INTEGER experimento_id PK,FK
+        BIGINT usuario_id PK,FK
+        TEXT variante
+    }
+
+    dim_fecha {
+        INTEGER fecha_key PK "YYYYMMDD"
+        DATE fecha
+        INTEGER anio
+        INTEGER mes
+        BOOLEAN es_fin_semana
+    }
+
+    dim_contenido {
+        BIGINT contenido_key PK
+        TEXT titulo
+        TEXT seccion
+        TEXT seccion_raiz "desnormalizado a proposito"
+        INTEGER nivel_acceso
+        TEXT estado
+    }
+
+    dim_estrategia {
+        INTEGER estrategia_key PK
+        TEXT codigo
+        TEXT motor
+    }
+
+    fact_consumo_diario {
+        BIGSERIAL id PK
+        INTEGER fecha_key FK
+        BIGINT contenido_key FK
+        TEXT dispositivo
+        INTEGER vistas
+        INTEGER vistas_completas "CHECK <= vistas"
+        BIGINT segundos_totales
+    }
+
+    fact_impresiones_diario {
+        BIGSERIAL id PK
+        INTEGER fecha_key FK
+        INTEGER estrategia_key FK
+        TEXT superficie
+        INTEGER impresiones
+        INTEGER clics "CHECK <= impresiones"
+        NUMERIC ctr
+    }
