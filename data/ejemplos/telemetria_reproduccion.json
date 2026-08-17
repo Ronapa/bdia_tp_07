@@ -1,0 +1,28 @@
+[
+  {
+    "medicion": {
+      "buffer_ms": 715,
+      "calidad": "1080p",
+      "segundo_reproduccion": 321
+    },
+    "ocurrido_en": "2026-06-03T06:00:00+00:00",
+    "origen": {
+      "contenido_id": 1007,
+      "dispositivo": "movil",
+      "usuario_id": 672
+    }
+  },
+  {
+    "medicion": {
+      "buffer_ms": 1592,
+      "calidad": "1080p",
+      "segundo_reproduccion": 20
+    },
+    "ocurrido_en": "2026-05-27T21:00:00+00:00",
+    "origen": {
+      "contenido_id": 1152,
+      "dispositivo": "escritorio",
+      "usuario_id": 1913
+    }
+  }
+]

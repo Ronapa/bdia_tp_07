@@ -1,0 +1,6 @@
+"usuario_id","contenido_id","estrategia_codigo","posicion","score","variante_ab","superficie","mostrado_en","clic","clic_en"
+"1090","2","grafo_covisualizacion","1","0.437535","tratamiento","home","2026-07-13T07:35:00+00:00","false",""
+"1379","572","hibrido","1","0.569739","control","articulo","2026-07-10T19:29:00+00:00","false",""
+"1875","2","contenido_similar","3","0.731777","control","home","2026-05-19T10:57:00+00:00","false",""
+"368","294","popularidad","20","0.522514","tratamiento","home","2026-05-04T10:16:00+00:00","false",""
+"1053","487","contenido_similar","1","0.246325","tratamiento","home","2026-06-28T09:41:00+00:00","false",""

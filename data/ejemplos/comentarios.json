@@ -1,0 +1,33 @@
+[
+  {
+    "_id": "COM-0000001",
+    "contenido_id": 8,
+    "creado_en": "2026-06-23T13:00:00+00:00",
+    "estado_moderacion": "aprobado",
+    "respuestas": [],
+    "texto": "Seria util ver la serie historica completa.",
+    "usuario_id": 1424
+  },
+  {
+    "_id": "COM-0000002",
+    "contenido_id": 8,
+    "creado_en": "2026-06-23T09:00:00+00:00",
+    "estado_moderacion": "aprobado",
+    "respuestas": [
+      {
+        "creado_en": "2026-06-23T10:00:00+00:00",
+        "orden": 1,
+        "texto": "Coincido con el analisis.",
+        "usuario_id": 1523
+      },
+      {
+        "creado_en": "2026-06-23T11:00:00+00:00",
+        "orden": 2,
+        "texto": "Faltan datos de contexto.",
+        "usuario_id": 1618
+      }
+    ],
+    "texto": "Muy claro el resumen, gracias por la nota.",
+    "usuario_id": 590
+  }
+]

@@ -1,0 +1,6 @@
+"id","email","alias","pais","anio_nacimiento","consentimiento_personalizacion","activo","fecha_alta"
+"1","tomas.fernandez1@example.com","Tomas Fernandez","UY","1970","true","true","2026-02-05T00:00:00+00:00"
+"2","agustina.herrera2@example.com","Agustina Herrera","AR","1957","true","true","2025-12-03T00:00:00+00:00"
+"3","ezequiel.vega3@example.com","Ezequiel Vega","AR","2000","true","true","2026-02-03T00:00:00+00:00"
+"4","julieta.ramos4@example.com","Julieta Ramos","AR","1955","true","true","2024-07-07T00:00:00+00:00"
+"5","camila.molina5@example.com","Camila Molina","AR","2003","true","true","2025-05-22T00:00:00+00:00"

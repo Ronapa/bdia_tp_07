@@ -1,0 +1,27 @@
+{
+  "semilla": 42,
+  "escala": "media",
+  "fecha_inicio": "2026-04-01T00:00:00+00:00",
+  "fecha_corte": "2026-07-31T23:00:00+00:00",
+  "conteos": {
+    "roles": 6,
+    "secciones": 32,
+    "etiquetas": 155,
+    "usuarios": 2000,
+    "usuarios_roles": 2006,
+    "suscripciones": 2055,
+    "consentimientos": 2000,
+    "contenidos": 3000,
+    "contenidos_etiquetas": 9032,
+    "versiones_contenido": 5230,
+    "moderaciones": 2536,
+    "preferencias_usuario": 3879,
+    "asignaciones_ab": 2000,
+    "impresiones": 92334,
+    "eventos_interaccion": 113341,
+    "cuerpos_contenido": 3000,
+    "comentarios": 2301,
+    "busquedas": 5000,
+    "telemetria_reproduccion": 30000
+  }
+}

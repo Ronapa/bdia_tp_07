@@ -1,0 +1,44 @@
+[
+  {
+    "_id": "BUS-0000001",
+    "clics": [
+      946,
+      2926
+    ],
+    "filtros": {
+      "seccion": null,
+      "tipo": "articulo"
+    },
+    "ocurrido_en": "2026-05-14T10:00:00+00:00",
+    "resultados": [
+      1728,
+      946,
+      589,
+      2926,
+      620,
+      1934
+    ],
+    "sesion_id": "S-000123-2026051410",
+    "texto": "sancion",
+    "usuario_id": 123
+  },
+  {
+    "_id": "BUS-0000002",
+    "clics": [
+      406
+    ],
+    "filtros": {
+      "seccion": "Sociedad",
+      "tipo": "articulo"
+    },
+    "ocurrido_en": "2026-05-19T22:00:00+00:00",
+    "resultados": [
+      406,
+      1032,
+      2510
+    ],
+    "sesion_id": "S-000335-2026051922",
+    "texto": "tipo de cambio",
+    "usuario_id": 335
+  }
+]
