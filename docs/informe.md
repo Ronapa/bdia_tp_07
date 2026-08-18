@@ -183,6 +183,47 @@ calidad del pipeline analítico.
 > implementados y haya corrido al menos una vez de punta a punta. Hasta entonces, cualquier número
 > concreto acá sería una expectativa, no un dato verificado.
 
+### 2.3 Implementación y verificación del bloque de datos
+
+La previsión anterior se materializó con `orquestador/generar_datos.py`, un generador
+deterministico: la misma semilla produce los mismos archivos byte a byte. Admite las escalas
+`chica`, `media` y `grande`, y guarda por separado los CSV que consume PostgreSQL, los JSON que
+usará el bloque documental y un `resumen.json` con los conteos de la corrida.
+
+La escala media con semilla 42 se ejecutó y verificó con estos volúmenes:
+
+| Estructura | Volumen |
+|---|---:|
+| Usuarios | 2.000 |
+| Contenidos | 3.000 (2.161 publicados) |
+| Secciones / etiquetas | 32 / 155 |
+| Impresiones en PostgreSQL | 92.334 |
+| Eventos de clickstream preparados para MongoDB | 113.341 |
+| Telemetría de reproducción | 30.000 mediciones |
+| Cuerpos / comentarios / búsquedas | 3.000 / 2.301 / 5.000 |
+| Eventos de auditoría producidos durante la carga | 9.591 |
+
+El generador incluye popularidad con ley de potencias, afinidad por sección, sesgo horario,
+`cold start`, usuarios sin actividad y contenidos nunca recomendados. Esos casos evitan un
+dataset uniforme que haría indistinguibles las estrategias y además ejercitan los `LEFT JOIN`
+del modelo.
+
+Los catálogos estables se cargan antes del dataset: tres planes, cinco tipos de contenido, cinco
+estrategias y un experimento A/B. Después `orquestador/cargar_postgres.py` ejecuta la carga
+transaccionalmete: usa `COPY` para las tablas de volumen, pero inserta los usuarios aplicando
+`HMAC-SHA256`, `pgp_sym_encrypt` y la función de seudonimización. Al terminar sincroniza las
+secuencias, refresca la vista de tendencias, ejecuta `ANALYZE` y registra catorce entidades en
+`control.control_cargas`.
+
+La verficación compara los conteos reales con ese registro de control y aborta ante filas
+perdidas, clics sin fecha, suscripciones inconsistentes, contenidos fuera del árbol o perfiles
+sin consentimiento. La corrida media se cargó dos veces con reset y ambas finalizaron con las
+92.334 impresiones repartidas entre abril y julio de 2026, sin filas en la partición `DEFAULT`.
+
+Los archivos JSON ya se generan para conservar identificadores estables entre motores, pero en
+este bloque no se crean colecciones ni se carga MongoDB; esa implementación queda para el bloque
+NoSQL.
+
 ---
 
 ## 3. Justificación de la selección tecnológica
