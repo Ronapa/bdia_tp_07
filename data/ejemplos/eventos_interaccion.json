@@ -1,0 +1,76 @@
+[
+  {
+    "contenido_id": 130,
+    "contexto": {
+      "canal": "newsletter",
+      "dispositivo": "tablet",
+      "pais": "UY",
+      "superficie": "home"
+    },
+    "evento_id": "EV-00000001",
+    "ocurrido_en": "2026-06-04T10:08:33+00:00",
+    "origen_recomendacion": {
+      "estrategia": "popularidad",
+      "posicion": 5,
+      "variante_ab": "tratamiento"
+    },
+    "sesion_id": "S-001061-2026060410",
+    "tipo_evento": "impresion",
+    "usuario_id": 1061
+  },
+  {
+    "contenido_id": 1081,
+    "contexto": {
+      "canal": "buscador",
+      "dispositivo": "escritorio",
+      "pais": "UY",
+      "superficie": "home"
+    },
+    "evento_id": "EV-00000002",
+    "metricas": {
+      "porcentaje_scroll": 53.2,
+      "segundos_visibles": 80
+    },
+    "ocurrido_en": "2026-05-08T22:35:38+00:00",
+    "sesion_id": "S-000806-2026050822",
+    "tipo_evento": "vista",
+    "usuario_id": 806
+  },
+  {
+    "contenido_id": 32,
+    "contexto": {
+      "canal": "redes",
+      "dispositivo": "escritorio",
+      "pais": "PY",
+      "superficie": "seccion"
+    },
+    "evento_id": "EV-00000003",
+    "ocurrido_en": "2026-07-27T13:25:37+00:00",
+    "origen_recomendacion": {
+      "estrategia": "hibrido",
+      "posicion": 7,
+      "variante_ab": "tratamiento"
+    },
+    "sesion_id": "S-001705-2026072713",
+    "tipo_evento": "impresion",
+    "usuario_id": 1705
+  },
+  {
+    "contenido_id": 18,
+    "contexto": {
+      "canal": "buscador",
+      "dispositivo": "movil",
+      "pais": "AR",
+      "superficie": "home"
+    },
+    "evento_id": "EV-00000004",
+    "metricas": {
+      "porcentaje_scroll": 100,
+      "segundos_visibles": 178
+    },
+    "ocurrido_en": "2026-07-03T03:24:43+00:00",
+    "sesion_id": "S-001771-2026070303",
+    "tipo_evento": "completado",
+    "usuario_id": 1771
+  }
+]

@@ -1,0 +1,80 @@
+[
+  {
+    "_id": "CNT-000001",
+    "bloques": [
+      {
+        "orden": 1,
+        "texto": "El informe menciona encuesta como factor central. El informe menciona encuesta como factor central.",
+        "tipo": "parrafo"
+      },
+      {
+        "autor": "Maria Molina",
+        "cargo": "analista",
+        "orden": 2,
+        "texto": "Lo que cambio fue acto.",
+        "tipo": "cita"
+      },
+      {
+        "autor": "Julieta Lopez",
+        "cargo": "investigador",
+        "orden": 3,
+        "texto": "Lo que cambio fue encuesta.",
+        "tipo": "cita"
+      }
+    ],
+    "contenido_id": 1,
+    "formato": "galeria",
+    "fotos": [
+      {
+        "orden": 1,
+        "url": "https://cdn.nexomedia.example/g1-1.jpg"
+      },
+      {
+        "orden": 2,
+        "url": "https://cdn.nexomedia.example/g1-2.jpg"
+      },
+      {
+        "orden": 3,
+        "url": "https://cdn.nexomedia.example/g1-3.jpg"
+      },
+      {
+        "orden": 4,
+        "url": "https://cdn.nexomedia.example/g1-4.jpg"
+      },
+      {
+        "orden": 5,
+        "url": "https://cdn.nexomedia.example/g1-5.jpg"
+      },
+      {
+        "orden": 6,
+        "url": "https://cdn.nexomedia.example/g1-6.jpg"
+      },
+      {
+        "orden": 7,
+        "url": "https://cdn.nexomedia.example/g1-7.jpg"
+      },
+      {
+        "orden": 8,
+        "url": "https://cdn.nexomedia.example/g1-8.jpg"
+      },
+      {
+        "orden": 9,
+        "url": "https://cdn.nexomedia.example/g1-9.jpg"
+      },
+      {
+        "orden": 10,
+        "url": "https://cdn.nexomedia.example/g1-10.jpg"
+      },
+      {
+        "orden": 11,
+        "url": "https://cdn.nexomedia.example/g1-11.jpg"
+      },
+      {
+        "orden": 12,
+        "url": "https://cdn.nexomedia.example/g1-12.jpg"
+      }
+    ],
+    "idioma": "es",
+    "palabras": 24
+  }
+]

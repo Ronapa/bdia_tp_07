@@ -1,0 +1,4 @@
+"evento_id","usuario_seudonimo","sesion_id","contenido_id","tipo_evento","ocurrido_en","dispositivo","canal","pais","superficie","segundos_visibles","porcentaje_scroll","segundos_reproducidos","porcentaje_reproducido","estrategia_origen","posicion_origen","variante_ab"
+"EV-00000003","U-21ac24ccc35a","S-001705-2026072713","32","impresion","2026-07-27T13:25:37","escritorio","redes","PY","seccion","","","","","hibrido","7","tratamiento"
+"EV-00000004","U-616ec41012dc","S-001771-2026070303","18","completado","2026-07-03T03:24:43","movil","buscador","AR","home","178","100","","","","",""
+"EV-00000018","U-2e7691258f45","S-000337-2026070322","183","clic","2026-07-03T22:17:29","escritorio","buscador","CL","home","","","","","","",""

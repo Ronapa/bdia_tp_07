@@ -1,0 +1,12 @@
+{
+  "archivos": {
+    "contenidos.csv": 3000,
+    "estrategias.csv": 5,
+    "eventos.csv": 25564,
+    "impresiones.csv": 22856,
+    "usuarios.csv": 2000
+  },
+  "escala": "media",
+  "lote": "lote_02_reciente",
+  "semilla": 42
+}

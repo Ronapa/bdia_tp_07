@@ -1,0 +1,6 @@
+"id","slug","nombre","seccion_padre_id","activa"
+"1","politica","Politica","","true"
+"2","politica-elecciones","Elecciones","1","true"
+"3","politica-elecciones-resultados","Resultados","2","true"
+"4","politica-elecciones-campana","Campana","2","true"
+"5","politica-congreso","Congreso","1","true"
