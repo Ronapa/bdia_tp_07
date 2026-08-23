@@ -11,7 +11,7 @@
 
 | Integrante | Usuario de GitHub | Aportes principales |
 |---|---|---|
-| Federica Pavese | `federica-pavese` | *(completar)* |
+| Federica Pavese | `federica-pavese` | Índices, vistas y vista materializada del modelo relacional. Roles, permisos, RLS, auditoría y seudonimización en PostgreSQL. |
 | Leandro Saraco | `lsaraco` | *(completar)* |
 | Maximiliano Lulic | `maxisoadgh` | *(completar)* |
 | Pablo Salvagni | `PabloSalvagni` | *(completar)* |
@@ -186,7 +186,7 @@ calidad del pipeline analítico.
 ### 2.3 Implementación y verificación del bloque de datos
 
 La previsión anterior se materializó con `orquestador/generar_datos.py`, un generador
-deterministico: la misma semilla produce los mismos archivos byte a byte. Admite las escalas
+determinístico: la misma semilla produce los mismos archivos byte a byte. Admite las escalas
 `chica`, `media` y `grande`, y guarda por separado los CSV que consume PostgreSQL, los JSON que
 usará el bloque documental y un `resumen.json` con los conteos de la corrida.
 
@@ -210,12 +210,12 @@ del modelo.
 
 Los catálogos estables se cargan antes del dataset: tres planes, cinco tipos de contenido, cinco
 estrategias y un experimento A/B. Después `orquestador/cargar_postgres.py` ejecuta la carga
-transaccionalmete: usa `COPY` para las tablas de volumen, pero inserta los usuarios aplicando
+transaccionalmente: usa `COPY` para las tablas de volumen, pero inserta los usuarios aplicando
 `HMAC-SHA256`, `pgp_sym_encrypt` y la función de seudonimización. Al terminar sincroniza las
 secuencias, refresca la vista de tendencias, ejecuta `ANALYZE` y registra catorce entidades en
 `control.control_cargas`.
 
-La verficación compara los conteos reales con ese registro de control y aborta ante filas
+La verificación compara los conteos reales con ese registro de control y aborta ante filas
 perdidas, clics sin fecha, suscripciones inconsistentes, contenidos fuera del árbol o perfiles
 sin consentimiento. La corrida media se cargó dos veces con reset y ambas finalizaron con las
 92.334 impresiones repartidas entre abril y julio de 2026, sin filas en la partición `DEFAULT`.
@@ -417,6 +417,52 @@ permite que las tres estrategias de vecinos convivan en la misma tabla).
 `JOIN` pero pierde la integridad referencial y hace imposible renombrar una etiqueta en un solo
 lugar.
 
+### 5.4 Índices, vistas y estructuras de optimización
+
+El modelo lógico se completa con estructuras que responden a los patrones de consulta esperados.
+No se crean índices de forma indiscriminada: cada índice agrega costo de almacenamiento y de
+escritura, por lo que debe estar asociado a una consulta o restricción concreta. La implementación
+se encuentra en `db/indices_vistas/`.
+
+`01_indices.sql` agrega índices sobre el lado dependiente de las claves foráneas, que PostgreSQL
+no crea automáticamente, y estructuras específicas para los caminos de mayor uso:
+
+- índices parciales y compuestos para recuperar contenido publicado por fecha, sección y nivel de
+  acceso;
+- un índice único parcial que garantiza una sola suscripción activa por usuario;
+- índices GIN sobre `JSONB` para consultas por contención y existencia de claves;
+- un índice GIN sobre `tsvector` para búsqueda literal en español;
+- índices por usuario, estrategia, contenido y fecha sobre la tabla particionada de impresiones;
+- un índice BRIN sobre `mostrado_en`, adecuado porque las impresiones se insertan en orden
+  cronológico;
+- un índice parcial sobre las impresiones que terminaron en clic;
+- índices para recorridos de auditoría y consultas de la capa analítica.
+
+`02_vistas.sql` centraliza reglas que, si se repitieran en cada consulta, podrían implementarse de
+forma diferente o incompleta:
+
+| Vista | Responsabilidad |
+|---|---|
+| `catalogo.vw_contenidos_publicables` | Expone únicamente contenido publicado y dentro de su ventana de vigencia |
+| `catalogo.vw_arbol_secciones` | Aplana la jerarquía de secciones e informa raíz, profundidad y camino |
+| `recomendacion.vw_rendimiento_estrategias` | Calcula impresiones, clics, CTR, cobertura y usuarios alcanzados |
+| `recomendacion.vw_vetos_usuario` | Reúne los contenidos excluidos por preferencias de tipo `no_interesa` |
+
+Estas vistas usan `security_invoker = TRUE`: se evalúan con los permisos de quien consulta y no
+con los del usuario que las creó. Esto evita que una vista creada por el dueño de la base se
+convierta en una vía para eludir las políticas de Row Level Security.
+
+Finalmente, `03_vistas_materializadas.sql` precalcula
+`recomendacion.mv_trending_seccion`. La consulta agrega impresiones recientes, aplica decaimiento
+temporal a los clics y ordena los contenidos dentro de cada sección. Se materializa porque es una
+consulta frecuente y costosa cuyo resultado tolera algunos minutos de desactualización.
+
+La vista tiene un índice único por sección y contenido, necesario para ejecutar
+`REFRESH MATERIALIZED VIEW CONCURRENTLY` sin bloquear las lecturas. La función
+`recomendacion.refrescar_trending()` intenta ese refresco concurrente y recurre al refresco común
+durante la primera carga. Para que el dataset sintético siga siendo reproducible, la ventana
+temporal se ancla al último evento cargado y no al reloj actual.
+
 ---
 
 ## 6. Modelo de implementación por tecnología
@@ -500,3 +546,127 @@ defecto para el operador de existencia `?`.
 
 **Lo que NO va en JSONB:** nada que se use para filtrar en el camino caliente ni que requiera
 integridad referencial. `estado`, `nivel_acceso` y `seccion_id` son columnas, no claves de un JSON.
+
+---
+
+## 13. Estrategia de seguridad, permisos y aislamiento
+
+La seguridad de PostgreSQL se construye en capas. Los permisos determinan qué objetos puede usar
+cada rol; Row Level Security (RLS) decide qué filas le corresponden; la auditoría registra los
+cambios; y la seudonimización permite analizar comportamiento sin entregar identificadores
+directos. Ninguno de estos mecanismos alcanza por sí solo: se complementan para que un error de
+la aplicación no se convierta automáticamente en una exposición de datos.
+
+### 13.1 Roles y mínimo privilegio
+
+`db/seguridad/01_roles_y_permisos.sql` traduce los usuarios del dominio a seis roles de base de
+datos: lector, editor, moderador, analista, administrador y un rol técnico reservado para la API.
+Ninguno es superusuario ni dueño de las tablas, porque esos privilegios permitirían omitir RLS y
+volverían ficticia la demostración de aislamiento.
+
+| Rol | Alcance principal |
+|---|---|
+| `bdia_lector` | Consulta el catálogo permitido y administra sus preferencias |
+| `bdia_editor` | Hereda al lector y trabaja sobre sus propios contenidos |
+| `bdia_moderador` | Revisa el catálogo completo y registra moderaciones |
+| `bdia_analista` | Consulta la capa Gold y los datos seudonimizados |
+| `bdia_admin` | Administra los datos y consulta la auditoría |
+| `bdia_api` | Tiene solo las lecturas y escrituras necesarias para servir recomendaciones |
+
+Los permisos se otorgan explícitamente sobre schemas, tablas, vistas, columnas y secuencias.
+`USAGE` sobre un schema permite nombrar sus objetos, pero no leerlos: por eso cada acceso se
+completa con el `GRANT` mínimo necesario. En particular, el analista no puede consultar la tabla
+de usuarios y la API no recibe acceso a auditoría ni a los secretos de control.
+
+### 13.2 Aislamiento por fila
+
+La aplicación no necesita abrir una conexión distinta por cada lector. Usa un rol técnico y, al
+comenzar la transacción, declara qué usuario está operando:
+
+```sql
+SELECT set_config('app.usuario_id', '123', TRUE);
+```
+
+El tercer argumento hace que la identidad dure solo durante esa transacción. Esto es importante
+cuando se usa un pool: si el valor quedara asociado a la conexión, el siguiente pedido podría
+heredar la identidad anterior. Las políticas recuperan el contexto mediante
+`personas.usuario_actual()`; si no fue declarado, el acceso no se amplía.
+
+`db/seguridad/02_row_level_security.sql` aplica RLS sobre cinco tablas:
+
+| Tabla | Regla principal |
+|---|---|
+| `catalogo.contenidos` | El lector ve contenido publicado, vigente y permitido por su plan; el editor también ve lo propio y el moderador todo el catálogo |
+| `personas.preferencias_usuario` | Cada usuario consulta y modifica únicamente sus preferencias |
+| `recomendacion.impresiones` | Cada usuario consulta su historial y la API solo registra impresiones a su nombre |
+| `recomendacion.perfiles_usuario` | Cada usuario accede exclusivamente a su perfil vectorial |
+| `personas.usuarios` | Cada usuario y la API recuperan solamente la fila de la identidad declarada |
+
+`USING` restringe qué filas pueden verse o modificarse; `WITH CHECK` valida qué filas pueden
+insertarse o quedar como resultado de una actualización. Sin esta segunda condición, alguien
+podría no ver datos ajenos y aun así escribir a nombre de otra persona.
+
+### 13.3 Permisos por columna y seguridad de las vistas
+
+RLS decide qué filas son accesibles, pero no qué columnas. El analista recibe acceso a un conjunto
+limitado de columnas de `recomendacion.estrategias`, suficiente para comparar códigos, versiones y
+motores sin exponer su descripción interna. Sobre `personas.usuarios` no recibe ningún permiso:
+su único acceso es la vista preparada para análisis.
+
+Las vistas operacionales de `db/indices_vistas/02_vistas.sql` usan
+`security_invoker = TRUE`. Esto hace que se evalúen con los permisos de quien consulta y evita que
+una vista creada por el dueño de la base se convierta en una puerta trasera hacia borradores o
+contenido restringido.
+
+La vista `personas.vw_usuarios_anonimizado` usa el patrón inverso de manera deliberada: necesita
+leer la tabla original con los privilegios de su dueño para devolver únicamente atributos
+transformados. El analista puede consultar esa salida controlada, pero no la fuente sensible.
+
+### 13.4 Datos sensibles y seudonimización
+
+El correo se guarda cifrado para su eventual recuperación y como HMAC para búsqueda y unicidad,
+sin persistirlo en texto claro. Para la capa analítica,
+`db/seguridad/04_vistas_anonimizadas.sql` crea además un seudónimo estable mediante HMAC-SHA256 y
+una sal aleatoria almacenada en `control.secretos`.
+
+La sal se genera una sola vez. Si cambiara entre corridas, un mismo usuario recibiría distintos
+seudónimos y se perdería la continuidad histórica. La función que construye el seudónimo no puede
+ser ejecutada por el analista: de lo contrario podría recorrer los identificadores y reconstruir
+el mapeo completo.
+
+La edad exacta también puede facilitar la reidentificación, por lo que se reemplaza por tramos
+calculados contra un año de referencia estable. La vista analítica entrega seudónimo, país, tramo
+etario, plan, consentimiento, estado y mes de alta; no expone id, alias, correo ni año de
+nacimiento.
+
+El resultado sigue siendo seudonimización, no anonimización irreversible. Quien accediera a la
+sal podría reconstruir la relación; publicar los datos fuera de la organización requeriría
+medidas adicionales de agregación y anonimización.
+
+### 13.5 Auditoría
+
+`db/seguridad/03_auditoria.sql` instala una función genérica y triggers sobre contenidos,
+moderaciones, usuarios y suscripciones. Cada `INSERT`, `UPDATE` o `DELETE` registra el usuario de
+base, el usuario de aplicación, la operación, la tabla, el identificador y los estados anterior y
+nuevo en JSONB.
+
+La función usa `SECURITY DEFINER`: puede escribir la traza sin entregar ese permiso a quien
+modifica el dato original. Los roles de aplicación no pueden fabricar eventos ni modificar,
+truncar o borrar los existentes. No se auditan las impresiones porque su propio carácter de
+registro de eventos ya conserva la actividad y duplicarlas haría crecer la traza sin aportar la
+misma utilidad.
+
+La barrera tiene un límite explícito: el dueño o un superusuario todavía podría alterar la tabla.
+Una auditoría inmutable incluso frente al DBA exigiría almacenamiento externo append-only, WORM o
+firma criptográfica.
+
+### 13.6 Estado de verificación
+
+Los cuatro scripts incluyen controles sobre roles, políticas, triggers, funciones y columnas
+expuestas. La carga del bloque de datos ya ejercitó los triggers y produjo eventos de auditoría.
+Las pruebas funcionales de accesos permitidos y rechazados se incorporarán junto con las consultas
+representativas.
+
+Esta sección describe únicamente la seguridad implementada en PostgreSQL. El aislamiento de
+MongoDB, Redis, Neo4j y MinIO, y la autenticación del servicio, se documentarán cuando se complete
+cada bloque correspondiente.
