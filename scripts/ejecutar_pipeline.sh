@@ -71,12 +71,24 @@ duck /sql/05_verificar_calidad.sql
 echo "--- Paso 11: publicar la capa de serving (Redis) ---"
 py publicar_serving.py
 
+# Drena el stream de ingesta y confirma los mensajes. Se corre sin
+# --simular para no alterar los conteos del dataset determinista; la
+# simulacion de trafico es un paso manual de docs/guia-practica.md.
+py consumir_stream.py
+
 echo "--- Paso 12: construir el grafo de recomendacion (Neo4j) ---"
 grafo /cypher/00_restricciones_e_indices.cypher
 py cargar_neo4j.py
 grafo /cypher/01_usuarios.cypher
 
-echo "--- Paso 13: verificacion final ---"
+echo "--- Paso 13: levantar la API de consumo ---"
+# La API arranca AHORA y no al principio: se conecta con usuarios de
+# minimo privilegio en los cuatro motores, y esos usuarios los crean los
+# pasos 7, 11 y 12. Su healthcheck devuelve 503 si algun motor no
+# responde, asi que arrancarla antes la dejaria en fallo legitimo.
+$COMPOSE --profile consumo up -d --wait api-recomendador
+
+echo "--- Paso 14: verificacion final ---"
 pg /sql/consultas/00_verificar_carga.sql
 
 echo ""
@@ -85,3 +97,7 @@ echo "  pgAdmin        : http://127.0.0.1:$(puerto PGADMIN_PORT)"
 echo "  Mongo Express  : http://127.0.0.1:$(puerto MONGO_EXPRESS_PORT)"
 echo "  Neo4j Browser  : http://127.0.0.1:$(puerto NEO4J_HTTP_PORT)"
 echo "  MinIO Consola  : http://127.0.0.1:$(puerto MINIO_CONSOLE_PORT)"
+echo "  API demo       : http://127.0.0.1:$(puerto API_PORT)/docs"
+echo ""
+echo "Demo de las cinco estrategias de recomendacion:"
+echo "  $COMPOSE exec -T orquestador python /workspace/orquestador/demo_recomendaciones.py --usuario 1"
