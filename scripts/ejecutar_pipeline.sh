@@ -71,6 +71,10 @@ duck /sql/05_verificar_calidad.sql
 echo "--- Paso 11: publicar la capa de serving (Redis) ---"
 py publicar_serving.py
 
+# Drena el stream de ingesta y confirma los mensajes. Se corre sin
+# --simular para no alterar los conteos del dataset determinista;
+py consumir_stream.py
+
 echo "--- Paso 12: construir el grafo de recomendacion (Neo4j) ---"
 grafo /cypher/00_restricciones_e_indices.cypher
 py cargar_neo4j.py
