@@ -14,7 +14,7 @@
 | Federica Pavese | `federica-pavese` | Índices, vistas y vista materializada del modelo relacional. Roles, permisos, RLS, auditoría y seudonimización en PostgreSQL. |
 | Leandro Saraco | `lsaraco` | *(completar)* |
 | Maximiliano Lulic | `maxisoadgh` | *(completar)* |
-| Pablo Salvagni | `PabloSalvagni` | *(completar)* |
+| Pablo Salvagni | `PabloSalvagni` | Conciliación de calidad Silver/Gold, capa de serving en Redis y orquestación del pipeline. Consumidor del stream de ingesta y consultas SQL representativas. |
 | Rodrigo Parra | `Ronapa` | *(completar)* |
 
 ---
