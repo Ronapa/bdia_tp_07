@@ -1,0 +1,64 @@
+%% Modelo fisico poliglota - donde vive cada dato y por que
+%% Render: docker run --rm -v "$PWD:/data" minlag/mermaid-cli -i modelo_fisico_poliglota.mmd -o modelo_fisico_poliglota.png
+
+flowchart LR
+    subgraph PG["PostgreSQL 17 + pgvector"]
+        direction TB
+        pg1["<b>personas</b><br/>usuarios · roles · planes<br/>suscripciones · preferencias<br/>consentimientos<br/><i>RLS + cifrado</i>"]
+        pg2["<b>catalogo</b><br/>contenidos · secciones (jerarquia)<br/>etiquetas · versiones · moderaciones<br/><i>RLS + JSONB + GIN</i>"]
+        pg3["<b>recomendacion</b><br/>estrategias · impresiones (particionada)<br/>ranking_items_similares<br/>experimentos A/B"]
+        pg4["<b>recomendacion (vectorial)</b><br/>embeddings_contenido VECTOR(384)<br/>perfiles_usuario VECTOR(384)<br/><i>HNSW + IVFFlat</i>"]
+        pg5["<b>analitica</b> (Gold)<br/>dim_fecha · dim_contenido<br/>dim_usuario_anonimizado · dim_estrategia<br/>fact_consumo · fact_impresiones · agg_popularidad"]
+        pg6["<b>auditoria</b> + <b>control</b><br/>eventos (append-only)<br/>accesos_sensibles · control_cargas"]
+    end
+
+    subgraph MG["MongoDB 8"]
+        direction TB
+        mg1["<b>eventos_interaccion</b><br/>esquema variable por tipo_evento<br/><i>TTL (90d en produccion) · indices parciales</i>"]
+        mg2["<b>cuerpos_contenido</b><br/>bloques heterogeneos embebidos<br/>+ transcripcion"]
+        mg3["<b>comentarios</b><br/>respuestas embebidas"]
+        mg4["<b>busquedas</b><br/>filtros con claves opcionales"]
+        mg5["<b>telemetria_reproduccion</b><br/><i>coleccion timeseries</i>"]
+    end
+
+    subgraph RD["Redis 8"]
+        direction TB
+        rd1["ZSET rec:trending:global<br/>ZSET rec:trending:seccion:*<br/>ZSET rec:usuario:*:top"]
+        rd2["SET usuario:*:vistos<br/>HASH usuario:*:features<br/>HASH contenido:*:meta"]
+        rd3["STRING sesion:* · ratelimit:*<br/>STREAM cola:eventos"]
+    end
+
+    subgraph N4["Neo4j 5.26"]
+        direction TB
+        n41["Nodos<br/>:Usuario :Contenido<br/>:Seccion :Etiqueta"]
+        n42["Relaciones<br/>VIO · GUARDO · SIGUE<br/>NO_LE_INTERESA · ESCRIBIO<br/>PERTENECE_A · TIENE_ETIQUETA<br/>SIMILAR_A"]
+    end
+
+    subgraph LK["MinIO + DuckDB"]
+        direction TB
+        lk1["bronze/lote=NN/<br/>CSV crudo inmutable<br/>+ _manifiesto.json"]
+        lk2["silver/<br/>Parquet ZSTD<br/>eventos · impresiones · sesiones"]
+        lk3["calidad/<br/>rechazos con linaje<br/>resumen por lote"]
+    end
+
+    pg2 -. "cuerpo_ref" .-> mg2
+    pg1 -. "usuario_id" .-> mg1
+    pg2 -. "contenido_id" .-> mg1
+    pg4 -. "SIMILAR_A" .-> n42
+    pg5 -. "agg_popularidad" .-> rd1
+    mg1 -. "export seudonimizado" .-> lk1
+    pg3 -. "export seudonimizado" .-> lk1
+    lk2 -. "co-ocurrencia" .-> pg3
+    lk2 -. "dimensiones y hechos" .-> pg5
+
+    classDef pgc fill:#1f4e79,stroke:#0d2b45,color:#fff
+    classDef mgc fill:#2e7d5b,stroke:#1a4a34,color:#fff
+    classDef rdc fill:#9c2b2b,stroke:#5e1a1a,color:#fff
+    classDef n4c fill:#6b3d7a,stroke:#432650,color:#fff
+    classDef lkc fill:#8a6d1f,stroke:#5c4813,color:#fff
+
+    class pg1,pg2,pg3,pg4,pg5,pg6 pgc
+    class mg1,mg2,mg3,mg4,mg5 mgc
+    class rd1,rd2,rd3 rdc
+    class n41,n42 n4c
+    class lk1,lk2,lk3 lkc

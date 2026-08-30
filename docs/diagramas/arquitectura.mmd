@@ -1,0 +1,64 @@
+%% Arquitectura de datos - NexoMedia
+%% Muestra como circulan los datos desde su generacion hasta su uso en la recomendacion.
+%% Render: docker run --rm -v "$PWD:/data" minlag/mermaid-cli -i arquitectura.mmd -o arquitectura.png
+
+flowchart TB
+    subgraph origen["Origen"]
+        app["Aplicacion web y movil<br/>lectores, editores, moderadores"]
+    end
+
+    subgraph operacional["Capa operacional (OLTP)"]
+        redis_in["Redis STREAM<br/>cola:eventos<br/><i>amortigua picos de escritura</i>"]
+        mongo[("MongoDB 8<br/>clickstream, cuerpos,<br/>comentarios, busquedas,<br/>telemetria (timeseries)")]
+        pg[("PostgreSQL 17 + pgvector<br/>catalogo, personas, permisos,<br/>impresiones, embeddings<br/><b>fuente de verdad</b>")]
+    end
+
+    subgraph lake["Lakehouse (MinIO + DuckDB)"]
+        bronze[/"bronze/lote=NN/<br/>CSV crudo, inmutable<br/><i>seudonimizado</i>"/]
+        silver[/"silver/<br/>Parquet ZSTD tipado,<br/>sesionizado + rechazos"/]
+        gold["gold<br/>modelo dimensional"]
+    end
+
+    subgraph serving["Capa de serving"]
+        pg_gold[("PostgreSQL<br/>analitica.*")]
+        redis_out[("Redis 8<br/>ZSET rankings<br/>HASH features<br/>SET ya vistos")]
+        neo[("Neo4j 5.26<br/>grafo de recomendacion<br/>+ aristas SIMILAR_A")]
+    end
+
+    subgraph consumo["Consumo"]
+        api["API de recomendacion<br/>5 estrategias<br/><i>usuarios de minimo privilegio</i>"]
+        tablero["Tablero editorial<br/>CTR, cobertura, diversidad"]
+    end
+
+    app -- "eventos" --> redis_in
+    redis_in -- "consumo por lotes" --> mongo
+    app -- "escrituras transaccionales" --> pg
+
+    mongo -- "export por lote<br/>seudonimizado" --> bronze
+    pg -- "snapshot de dimensiones<br/>via vista anonimizada" --> bronze
+
+    bronze -- "DuckDB: tipado, limpieza,<br/>validacion, sesionizacion" --> silver
+    silver -- "DuckDB: agregados,<br/>co-ocurrencia item-item" --> gold
+
+    gold -- "extension postgres" --> pg_gold
+    gold -- "publicar_serving.py" --> redis_out
+    gold -- "cargar_neo4j.py" --> neo
+    pg -- "embeddings + kNN exacto" --> neo
+
+    pg_gold --> tablero
+    redis_out --> api
+    neo --> api
+    pg --> api
+
+    api -- "registra impresiones" --> pg
+    api -- "responde" --> app
+
+    classDef fuente fill:#1f4e79,stroke:#0d2b45,color:#fff
+    classDef derivado fill:#2e7d5b,stroke:#1a4a34,color:#fff
+    classDef archivo fill:#8a6d1f,stroke:#5c4813,color:#fff
+    classDef consumidor fill:#6b3d7a,stroke:#432650,color:#fff
+
+    class pg,mongo fuente
+    class redis_out,neo,pg_gold,gold derivado
+    class bronze,silver,redis_in archivo
+    class api,tablero,app consumidor
