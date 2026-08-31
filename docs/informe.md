@@ -11,11 +11,11 @@
 
 | Integrante | Usuario de GitHub | Aportes principales |
 |---|---|---|
-| Federica Pavese | `federica-pavese` | Índices, vistas y vista materializada del modelo relacional. Roles, permisos, RLS, auditoría y seudonimización en PostgreSQL. |
-| Leandro Saraco | `lsaraco` | *(completar)* |
-| Maximiliano Lulic | `maxisoadgh` | *(completar)* |
-| Pablo Salvagni | `PabloSalvagni` | Conciliación de calidad Silver/Gold, capa de serving en Redis y orquestación del pipeline. Consumidor del stream de ingesta y consultas SQL representativas. |
-| Rodrigo Parra | `Ronapa` | *(completar)* |
+| Federica Pavese | `federica-pavese` | Índices, vistas y seguridad en PostgreSQL; embeddings, índices vectoriales y consultas de similitud. |
+| Leandro Saraco | `lsaraco` | Generador de datos sintéticos, datos de referencia, carga y verificaciones de PostgreSQL; muestras, informe y guía práctica. |
+| Maximiliano Lulic | `maxisoadgh` | Infraestructura inicial con Docker Compose; modelo documental y carga del clickstream en MongoDB; grafo de recomendación en Neo4j. |
+| Pablo Salvagni | `PabloSalvagni` | Conciliación Silver/Gold, serving en Redis y orquestación; stream de ingesta, API, consultas, README y diagramas finales. |
+| Rodrigo Parra | `Ronapa` | Informe y modelos iniciales; schemas y modelo relacional; MinIO, capas Bronze/Silver/Gold y demo de recomendaciones. |
 
 ---
 
@@ -178,10 +178,9 @@ de potencia, afinidad por sección, sesgo horario, cold start de usuarios y cont
 sin actividad y contenidos nunca recomendados, y defectos inyectados para ejercitar la capa de
 calidad del pipeline analítico.
 
-> **Pendiente.** Esta sección se completa con los volúmenes reales (usuarios, contenidos, eventos,
-> embeddings, aristas del grafo, etc.) una vez que el generador de datos y el pipeline estén
-> implementados y haya corrido al menos una vez de punta a punta. Hasta entonces, cualquier número
-> concreto acá sería una expectativa, no un dato verificado.
+> **Estado verificado.** Los volúmenes reproducibles de la escala media se detallan en §2.3 y §9.
+> El pipeline completo ya genera, carga y concilia las capas operacionales, vectoriales,
+> documentales, analíticas y de serving.
 
 ### 2.3 Implementación y verificación del bloque de datos
 
@@ -549,6 +548,232 @@ integridad referencial. `estado`, `nivel_acceso` y `seccion_id` son columnas, no
 
 ---
 
+## 8. Implementación mínima realizada
+
+Todo el proyecto levanta con Docker Compose y se reconstruye con un comando.
+
+| Componente | Estado | Archivos |
+|---|---|---|
+| PostgreSQL: 6 schemas, 38 tablas físicas (6 particiones), 29 índices operacionales, 4 vistas | Implementado | `db/estructura/`, `db/indices_vistas/` |
+| Seguridad: 6 roles, RLS, auditoría, vistas anonimizadas | Implementado | `db/seguridad/` |
+| Generador de datos determinista | Implementado | `orquestador/generar_datos.py` |
+| MongoDB: 5 colecciones, validadores, timeseries, 12 índices | Implementado | `nosql/mongodb/` |
+| Vectorial: embeddings, HNSW, IVFFlat, vecinos precalculados | Implementado | `vectorial/`, `orquestador/generar_embeddings.py` |
+| Neo4j: 5.187 nodos, 97.883 aristas, restricciones e índices | Implementado | `nosql/neo4j/`, `orquestador/cargar_neo4j.py` |
+| Lakehouse: Medallion completo con calidad y linaje | Implementado | `analitico/`, `orquestador/exportar_bronze.py` |
+| Redis: 7 estructuras, feeds precalculados, ACL | Implementado | `orquestador/publicar_serving.py` |
+| API de recomendación (demostración) | Implementado | `orquestador/recomendador_api.py` |
+
+### 8.1 Verificaciones que abortan el pipeline
+
+Todo paso que puede perder datos tiene un control que **falla ruidosamente**:
+
+| Control | Dónde | Qué detecta |
+|---|---|---|
+| Conteos contra `control.control_cargas` | `db/consultas/00_verificar_carga.sql` | Filas perdidas en la carga |
+| Integridad entre tablas | Ídem | Publicados sin fecha, suscripciones duplicadas, filas en la partición DEFAULT |
+| Gobierno de datos | Ídem | Perfiles vectoriales de usuarios sin consentimiento |
+| Conteos y referencias | `nosql/mongodb/00_cargar_datos.js` | Comentarios huérfanos |
+| Balance de calidad | `analitico/02_procesar_silver.sql` | `aceptadas + rechazadas ≠ recibidas` |
+| Conciliación Silver ↔ Gold | `analitico/05_verificar_calidad.sql` | Divergencia entre capas |
+| Un solo modelo y dimensión | `vectorial/01_crear_indices_vectoriales.sql` | Embeddings mezclados |
+| kNN completo | Ídem | Menos de 9 vecinos por contenido |
+
+### 8.2 Tres defectos que estos controles encontraron durante el desarrollo
+
+Se documentan porque ilustran por qué los controles son parte del diseño y no un adorno:
+
+1. **kNN silenciosamente incompleto.** El cálculo por lote devolvía 1 o 2 vecinos donde se pedían
+   10: PostgreSQL elegía el índice IVFFlat y, con `ivfflat.probes = 1`, escaneaba el 2% del
+   catálogo. La consulta no fallaba. Se resolvió apagando los índices en el cálculo por lote
+   (exactitud) y dejándolos para las consultas en línea (latencia).
+2. **Filas perdidas en la capa Gold.** Un `HAVING` descartaba 6 grupos que violaban el `CHECK`
+   `vistas_completas <= vistas`. Lo detectó la conciliación Silver/Gold. La causa real era una
+   definición equivocada: un evento `completado` **es** una vista.
+3. **Gold construida sobre Bronze de otra corrida.** Bronze es inmutable, así que al regenerar el
+   dataset a otra escala el lake conservó los archivos viejos. Se resolvió con un manifiesto por
+   lote: la inmutabilidad ahora es *dentro de una versión del dataset*.
+
+Y los dos de seguridad, que no aparecieron probando la aplicación sino preguntándole al motor qué
+podía hacer cada rol:
+
+4. **La API ignoraba el RLS.** Se conectaba con el dueño de la base. `/trending` devolvía títulos
+   de contenido premium a un visitante anónimo, y nada fallaba.
+5. **El rol de la API podía leer los 1.451 perfiles vectoriales.** Los endpoints filtraban, así que
+   desde afuera no se notaba. Se encontró revisando los `GRANT`, no las respuestas.
+
+La lección práctica: **probar la aplicación no alcanza para auditar los permisos.** Hay que
+sentarse en la sesión de cada rol y preguntarle a la base qué le deja hacer.
+
+---
+
+## 9. Datos de ejemplo utilizados
+
+Ver §2.2. Muestra versionada en `data/ejemplos/`.
+
+**Defectos inyectados en el lote reciente de Bronze,** uno por código de error, para que la capa
+Silver tenga algo real que atrapar:
+
+| Defecto | Código resultante |
+|---|---|
+| Seudónimo inexistente | `USUARIO_DESCONOCIDO` |
+| Fecha `31/02/2026` | `FECHA_INVALIDA` |
+| `evento_id` repetido | `DUPLICADO` |
+| `porcentaje_scroll = 150` | `FUERA_DE_RANGO` |
+| `tipo_evento = "pestaneo"` | `TIPO_EVENTO_DESCONOCIDO` |
+| Sin `contenido_id` | `FALTA_OBLIGATORIO` |
+| Coma decimal (`45,5`) y fecha con barras | *Normalizado, no rechazado* |
+| Espacios y mayúsculas (`"  MOVIL  "`) | *Normalizado, no rechazado* |
+
+Los dos últimos son deliberados: marcan la diferencia entre **dato inválido** (se rechaza) y
+**dato mal escrito** (se normaliza). Confundirlos hace que un pipeline descarte datos buenos o
+acepte datos rotos.
+
+---
+
+## 10. Consultas representativas
+
+La consigna pide un mínimo de 5. El proyecto entrega **102 consultas representativas**, cada una
+con la pregunta de negocio que responde escrita arriba, más **32 bloques de prueba de seguridad**
+que se cuentan aparte porque su resultado esperado es un error.
+
+### Tabla canónica
+
+Es la única fuente del conteo: el README y la conclusión la referencian en lugar de repetir un
+número.
+
+| Motor | Archivo | Consultas | Técnicas principales |
+|---|---|---|---|
+| PostgreSQL | `db/consultas/01_feed_personalizado.sql` | 1 | CTE, `NOT EXISTS`, `ROW_NUMBER()`, índice parcial |
+| PostgreSQL | `db/consultas/02_rendimiento_estrategias.sql` | 5 | `HAVING`, `AVG() OVER ()`, `RANK()`, `LAG()`, experimento A/B |
+| PostgreSQL | `db/consultas/03_catalogo_y_jerarquia.sql` | 6 | `WITH RECURSIVE`, N:M, `JSONB` con `@>` y `?` |
+| PostgreSQL | `db/consultas/04_cobertura_y_sesgo.sql` | 5 | `NOT EXISTS`, `NTILE`, diversidad, long tail |
+| pgvector | `vectorial/consultas/01_similitud.sql` | 5 | `<=>` con prefiltrado, diversificación, duplicados |
+| pgvector | `vectorial/consultas/02_explain_indices.sql` | 6 | `EXPLAIN`, HNSW vs. IVFFlat, `probes`, `ef_search` |
+| pgvector | `vectorial/consultas/03_literal_vs_semantica.sql` | 5 | `tsvector` + GIN, solapamiento, *reciprocal rank fusion* |
+| MongoDB | `nosql/mongodb/consultas/01_modelo_documental.md` | 5 | Esquema variable, notación de punto, `$lookup` de control |
+| MongoDB | `nosql/mongodb/consultas/02_agregaciones_consumo.md` | 4 | `$group` doble, `$bucket`, `$facet`, timeseries |
+| MongoDB | `nosql/mongodb/consultas/03_lookup_y_ventanas.md` | 4 | `$lookup`, `$unwind`, `$setWindowFields`, `$text` |
+| MongoDB | `nosql/mongodb/consultas/04_indices_y_explain.md` | 10 | `explain("executionStats")`, índices parciales, validadores |
+| Neo4j | `nosql/neo4j/consultas/01_covisualizacion.cypher` | 4 | Recorridos de 2 saltos, mezcla con similitud, cold start |
+| Neo4j | `nosql/neo4j/consultas/02_explicabilidad_y_diversidad.cypher` | 5 | `shortestPath`, burbuja de filtro, contenidos puente |
+| Redis | `nosql/redis/consultas/01_estructuras_de_serving.md` | 23 | ZSET, SET, HASH, STREAM, `ZUNIONSTORE`, ACL |
+| DuckDB | `analitico/01_perfilar_bronze.sql` | 7 | Perfilado schema-on-read, deteccion de anomalias |
+| DuckDB | `analitico/05_verificar_calidad.sql` | 7 | Conciliacion Silver ↔ Gold, CTR, cobertura, co-ocurrencia |
+| **Total** | | **102** | |
+
+No se cuentan como consultas los pasos de transformación de
+`analitico/02_procesar_silver.sql`, `03_publicar_silver.sql` y `04_cargar_gold.sql`: son el
+pipeline que construye las capas, no preguntas sobre los datos.
+
+### Bloques de prueba de seguridad
+
+Se cuentan aparte porque **su resultado esperado es un error**: comprueban barreras, no responden
+preguntas de negocio.
+
+| Archivo | Bloques | Qué demuestra |
+|---|---|---|
+| `db/consultas/05_prueba_aislamiento.sql` | 10 | RLS por rol de usuario final, permisos por columna |
+| `db/consultas/06_prueba_aislamiento_api.sql` | 7 | El rol de la API está sujeto al mismo RLS |
+| `nosql/mongodb/consultas/05_permisos.md` | 11 | Permisos por acción y colección; el límite del motor |
+| `nosql/neo4j/consultas/03_limitaciones_community.cypher` | 4 | Community Edition no tiene control de acceso por roles |
+| **Total** | **32** | |
+
+---
+
+## 11. Datos semiestructurados, no estructurados y búsqueda vectorial
+
+Desarrollado en §2.1, `nosql/modelo_nosql.md` y `vectorial/modelo_vectorial.md`. Se resumen las
+respuestas a las preguntas de la consigna:
+
+**¿Qué datos podrían vectorizarse?** Título, bajada, sección y etiquetas de cada contenido; y el
+perfil de cada usuario como centroide ponderado de lo consumido. **No** el cuerpo completo: el
+caso de uso es recomendación, no recuperación de pasajes.
+
+**¿Qué necesidad resuelve la búsqueda por similitud?** Encontrar contenido relacionado cuando no
+comparte etiquetas ni sección, y resolver el feed personalizado con **una** búsqueda en lugar de
+N. Además cubre el cold start del contenido: una nota publicada hace una hora tiene embedding
+desde el primer minuto, mientras que el filtrado colaborativo necesita lectores.
+
+**¿Qué metadatos acompañan a los vectores?** `modelo_embedding` (los espacios vectoriales de
+modelos distintos no son comparables), `texto_fuente` (reproducibilidad y auditoría),
+`indexado_en`, y la clave foránea al catálogo.
+
+**¿Qué riesgos aparecen si se recupera información incorrecta o no autorizada?** Es el riesgo
+central del caso. Un borrador, una nota despublicada o contenido premium recuperado por
+similitud sería una fuga. Mitigación en cinco capas independientes, detalladas en §13.
+
+---
+
+## 12. Arquitectura de datos
+
+Ver `docs/diagramas/arquitectura.mmd`.
+
+### 12.1 Flujo
+
+> El diagrama completo, en imagen: [`docs/diagramas/arquitectura.png`](diagramas/arquitectura.png).
+> La fuente versionable es `arquitectura.mmd`, que GitHub y GitLab renderizan de forma nativa.
+
+```
+Aplicacion web/movil
+   |
+   +-- eventos ------> Redis STREAM (buffer) ----> MongoDB  [clickstream crudo]
+   |                   consumir_stream.py drena y confirma con XACK
+   |
+   +-- escrituras ---> PostgreSQL  [catalogo, personas, permisos, impresiones]
+                            |
+      export por lote ------+---> MinIO  s3://lakehouse/bronze/lote=<n>/  (CSV, inmutable)
+                                          |
+                                DuckDB ---+---> silver/  (Parquet ZSTD, tipado, sesionizado,
+                                          |               + rechazos con linaje)
+                                          |
+                                DuckDB ---+---> gold     (modelo dimensional)
+                                          |
+               +--------------------------+--------------------------+
+               v                          v                          v
+      PostgreSQL analitica.*      Redis (ZSET / HASH)        Neo4j (SIMILAR_A)
+               |                          |                          |
+               +------------+-------------+--------------------------+
+                            v
+                 API de recomendacion ---> registra impresiones ---> PostgreSQL
+                            |                                            |
+                            +--------- el circuito se cierra ------------+
+```
+
+### 12.2 Por qué una arquitectura por capas y no una simple
+
+Una arquitectura simple —todo en PostgreSQL, consultas analíticas sobre las mismas tablas— sería
+suficiente hasta cierta escala, y el informe lo reconoce (§3.1). Se elige la arquitectura por
+capas por tres razones concretas:
+
+1. **Aislamiento de cargas.** Una consulta analítica que barre 90 días de impresiones compite por
+   caché y CPU con el feed. Separarlas es lo que impide que un tablero degrade el sitio.
+2. **Trazabilidad.** Bronze inmutable permite reprocesar el pipeline entero cuando se descubre un
+   error de transformación, sin haber perdido el dato original.
+3. **Calidad explícita.** La capa Silver hace visible lo que se descartó y por qué. Sin ella, una
+   carga que pierde el 5% de los eventos se ve igual que una correcta.
+
+Es un **Lakehouse en versión mínima**: object storage con archivos abiertos (Parquet), motor de
+consulta desacoplado (DuckDB) y estructura Medallion. **No es un Lakehouse completo:** no hay
+formato transaccional de tabla (Delta, Iceberg), ni *time travel*, ni catálogo de metadatos, ni
+control de concurrencia entre escritores. Se declara el alcance para no sobrevender la
+arquitectura.
+
+### 12.3 Componentes
+
+| Capa | Componente | Responsabilidad |
+|---|---|---|
+| Ingesta | Redis Streams | Amortigua picos de escritura del clickstream |
+| Operacional | PostgreSQL + pgvector | Fuente de verdad; ACID; RLS; búsqueda semántica |
+| Operacional | MongoDB | Clickstream y contenido no estructurado |
+| Lake | MinIO | Object storage S3 del Bronze y el Silver |
+| Transformación | DuckDB | Bronze → Silver → Gold |
+| Serving | Redis | Rankings, features y caché |
+| Serving | Neo4j | Recorridos y explicabilidad |
+| Consumo | FastAPI | Demostración de los patrones de acceso |
+
+---
+
 ## 13. Estrategia de seguridad, permisos y aislamiento
 
 La seguridad de PostgreSQL se construye en capas. Los permisos determinan qué objetos puede usar
@@ -663,10 +888,316 @@ firma criptográfica.
 ### 13.6 Estado de verificación
 
 Los cuatro scripts incluyen controles sobre roles, políticas, triggers, funciones y columnas
-expuestas. La carga del bloque de datos ya ejercitó los triggers y produjo eventos de auditoría.
-Las pruebas funcionales de accesos permitidos y rechazados se incorporarán junto con las consultas
-representativas.
+expuestas. `db/consultas/05_prueba_aislamiento.sql` y
+`db/consultas/06_prueba_aislamiento_api.sql` ejercitan accesos permitidos y operaciones que deben
+fallar. Las verificaciones de MongoDB, Redis, Neo4j y MinIO completan el análisis en la sección
+siguiente, con las limitaciones propias de cada motor declaradas de forma explícita.
 
-Esta sección describe únicamente la seguridad implementada en PostgreSQL. El aislamiento de
-MongoDB, Redis, Neo4j y MinIO, y la autenticación del servicio, se documentarán cuando se complete
-cada bloque correspondiente.
+### 13.7 Aislamiento en los otros motores
+
+Cada motor ofrece una granularidad distinta, y esa asimetría es un resultado del análisis, no un
+detalle de implementación. La columna **Estado** distingue lo implementado de lo que el motor no
+permite.
+
+| Motor | Mecanismo | Estado | Granularidad máxima | Límite |
+|---|---|---|---|---|
+| **PostgreSQL** | Roles, RLS, permisos por columna | Implementado | Tabla, **columna** y **fila** | Un superusuario siempre saltea el RLS |
+| **MongoDB** | Rol propio por perfil, dos usuarios acotados | Implementado (`nosql/mongodb/02_usuarios_y_permisos.js`) | Base, colección y acción | **No tiene equivalente al RLS**: o ve la colección entera, o no la ve |
+| **Redis** | ACL por comando y patrón de clave | Implementado (`orquestador/publicar_serving.py`) | Comando y patrón de clave | `~usuario:*` alcanza a *todos*; el aislamiento entre personas queda en la aplicación |
+| **MinIO** | Política de bucket + usuario de solo lectura | Implementado (`scripts/configurar_minio.sh`) | Bucket, prefijo y acción | El lake ya recibe datos seudonimizados, así que el control es una segunda barrera |
+| **Neo4j** | Usuario separado | **Limitación del motor** (`nosql/neo4j/01_usuarios.cypher`) | Ninguna: usuario o nada | **Community Edition no tiene control de acceso basado en roles.** No existe forma de crear un usuario de solo lectura |
+
+#### La limitación de Neo4j, comprobada
+
+No es una suposición: `nosql/neo4j/consultas/03_limitaciones_community.cypher` contiene el comando
+que lo demuestra.
+
+```
+SHOW ROLES;
+-->  Unsupported administration command: SHOW ROLES
+```
+
+Y `SHOW USERS` devuelve la columna `roles` en `NULL` para todos los usuarios, incluido el
+administrador. Un usuario creado con `CREATE USER` tiene exactamente los mismos privilegios que
+`neo4j`: sirve para rotar credenciales de forma independiente, y para nada más. El control
+granular —roles, privilegios por etiqueta de nodo, seguridad a nivel de propiedad— es una función
+de la edición Enterprise.
+
+**Cómo se compensa.** Como el motor no puede restringir el acceso, se restringe el **dato**: los
+nodos `:Usuario` del grafo tienen `usuario_id`, `pais` y `plan`, y nada más. Ni correo, ni alias,
+ni fecha de nacimiento. Quien leyera el grafo entero no obtendría un solo identificador directo de
+persona. Si el grafo guardara datos personales, elegir la Community Edition sería inadmisible.
+
+En producción, el acceso pasaría además por un servicio que solo expone consultas parametrizadas y
+el puerto Bolt no se publicaría: es el patrón habitual cuando el motor no puede imponer el límite.
+
+#### La consecuencia de diseño
+
+Esa tabla es la razón concreta por la que **los datos personales de este sistema viven en
+PostgreSQL**. No es una preferencia: es el único motor del stack que puede imponer el aislamiento
+entre personas a nivel de fila. En los demás solo hay comportamiento referenciado por id, y hacia
+el lakehouse ni siquiera eso: sale seudonimizado.
+
+### 13.8 El riesgo específico de una aplicación conectada a IA
+
+El recomendador es un canal de exfiltración potencial: puede ofrecer un borrador, una nota
+despublicada o contenido premium a quien no corresponde. Cinco capas independientes lo impiden:
+
+1. **Prefiltrado dentro de la consulta vectorial**, nunca posfiltrado en la aplicación.
+2. **Vistas con `security_invoker`**, para que el RLS aplique a través de ellas.
+3. **Políticas RLS** en el motor, que protegen incluso a las consultas que nadie recuerde filtrar.
+4. **Cálculo por lote acotado** a contenidos publicados: un borrador nunca entra a
+   `ranking_items_similares` ni a Redis.
+5. **Consentimiento** como condición para construir el perfil.
+
+### 13.9 El servicio que consume esos datos
+
+Las cinco capas anteriores solo valen si **quien consulta está sujeto a ellas**. Ese fue el punto
+más débil de una versión anterior de este trabajo, y se corrigió.
+
+**El problema.** La API se conectaba con el dueño de la base, que es superusuario y por lo tanto
+**ignora el Row Level Security**. Toda la barrera quedaba en manos del código del servicio: si un
+endpoint se olvidaba de filtrar, no había red debajo. Y uno se olvidaba: `/trending` devolvía
+títulos de contenido premium a un visitante anónimo. Además aceptaba el `usuario_id` en la URL sin
+autenticar, dejaba que el cliente declarara su propio `nivel_acceso` y permitía registrar
+impresiones a nombre de cualquiera.
+
+**La corrección**, toda en la capa de datos:
+
+| Medida | Dónde |
+|---|---|
+| Rol `bdia_api`, no superusuario, sujeto a RLS | `db/seguridad/01_roles_y_permisos.sql` |
+| Política `WITH CHECK` que impide escribir a nombre de otro | `db/seguridad/02_row_level_security.sql` |
+| El nivel de acceso se deriva de `personas.nivel_acceso_actual()`, nunca del cliente | `orquestador/recomendador_api.py` |
+| Sin acceso a `suscripciones`, `planes`, `auditoria` ni `control` | `db/seguridad/01_roles_y_permisos.sql` |
+| `set_config(..., TRUE)`: el contexto muere con la transacción | `orquestador/recomendador_api.py` |
+| Prefiltrado por nivel en todos los endpoints, incluido `/trending` | `orquestador/recomendador_api.py` |
+| RLS sobre `recomendacion.perfiles_usuario`: el rol veía los 1.451 perfiles vectoriales | `db/seguridad/02_row_level_security.sql` |
+
+**La segunda fuga**, encontrada revisando qué podía leer el rol y no qué devolvía la API: `bdia_api`
+tenía `SELECT` sobre `recomendacion.perfiles_usuario` sin RLS. Los endpoints filtraban por
+`usuario_id`, así que no era alcanzable desde afuera, pero la barrera estaba otra vez en el código.
+El perfil vectorial es el centroide de todo lo que la persona consumió: son sus intereses
+**inferidos**, y en cierto sentido es más sensible que el historial, porque el historial hay que
+interpretarlo y el centroide ya es la interpretación.
+
+La lección, aplicable a cualquier tabla que se agregue: **otorgar `SELECT` no alcanza; hay que
+preguntarse además qué filas de esa tabla le corresponden a quien consulta.**
+
+#### Mínimo privilegio en los cuatro motores
+
+La API no usa credenciales administrativas en ninguno:
+
+| Motor | Usuario | Qué puede |
+|---|---|---|
+| PostgreSQL | `bdia_api` | Sujeto a RLS; sin acceso a `suscripciones`, `planes`, `auditoria` ni `control` |
+| Redis | `app_lectura` | Solo lectura, acotada a los patrones `rec:*`, `contenido:*`, `usuario:*` |
+| MongoDB | `bdia_mongo_lectura` | `find` sobre tres colecciones; **sin acceso a `comentarios`** |
+| Neo4j | `bdia_grafo_consulta` | Usuario separado, pero **no de solo lectura**: la Community Edition no tiene roles |
+
+Y el transformador DuckDB usa `bdia_lake_transformador`, acotado al bucket `lakehouse`: puede leer
+y escribir ahí —lo necesita, publica Silver en Parquet— y no puede crear buckets ni administrar el
+servidor.
+
+Dos detalles que completan el mínimo privilegio, y que sin ellos la afirmación sería a medias:
+
+- **Las credenciales root de MinIO no se declaran en el contenedor del transformador.** Aunque el
+  script no las usara, estar en el entorno alcanza: un `docker compose exec` las recupera. Un
+  secreto que un proceso no necesita es un secreto que no debería poder leer.
+- **El script no tiene repliegue a root.** `${MINIO_TRANSFORMADOR_USER:?...}` aborta si la variable
+  falta. Un repliegue silencioso convertiría un error de configuración en una escalada de
+  privilegios que nadie notaría, porque todo seguiría funcionando.
+
+Como esos usuarios los crean pasos del pipeline, la API **arranca al final**, con el perfil de
+Compose `consumo`. Su `/salud` devuelve **503** si algún motor no responde: un healthcheck que
+diera 200 con `"ok": false` marcaría como sano un servicio degradado.
+
+`db/consultas/06_prueba_aislamiento_api.sql` lo demuestra con siete bloques, seis de los cuales
+**deben fallar**. El más importante:
+
+```sql
+SET LOCAL ROLE bdia_api;
+SELECT set_config('app.usuario_id', '2', TRUE);
+INSERT INTO recomendacion.impresiones (usuario_id, ...) VALUES (9999, ...);
+-->  ERROR: new row violates row-level security policy for table "impresiones"
+```
+
+Aunque alguien modificara la API para aceptar el `usuario_id` del cuerpo del pedido, el motor
+rechaza la fila. **Esa es la diferencia entre una validación y una barrera.**
+
+#### Lo que queda fuera del alcance
+
+La **autenticación**. La identidad llega en la cabecera `X-Usuario-Id`, que simula un token de
+sesión ya validado; en producción sería un JWT firmado y el servidor verificaría la firma.
+
+Es una decisión de alcance, no un descuido: la autenticación es un problema de la capa de
+aplicación y de una materia distinta.
+
+Conviene ser preciso sobre qué queda resuelto y qué no, porque la diferencia importa:
+
+| | Estado |
+|---|---|
+| **A qué tiene derecho** el usuario (nivel de acceso, qué filas ve, qué puede escribir) | **No se confía en el cliente.** Sale siempre de la base, y el RLS lo impone |
+| **Quién dice ser** el usuario | **Se confía en la cabecera.** Cualquiera puede enviar `X-Usuario-Id: 2` y asumir esa identidad |
+
+Es decir: el sistema resuelve la **autorización** en el motor y deja la **autenticación**
+declarada como fuera de alcance. Reemplazar la cabecera por un JWT validado cerraría la segunda
+fila sin cambiar una sola línea de SQL, porque todo lo que depende de la identidad ya se resuelve
+a partir de `app.usuario_id`, no de lo que el cliente afirme sobre sus permisos.
+
+## 14. Escalabilidad y rendimiento
+
+### 14.1 Qué crece y a qué ritmo
+
+| Estructura | Crecimiento | Proyección a 1 año |
+|---|---|---|
+| `recomendacion.impresiones` | Lineal en tráfico × posiciones | Cientos de millones |
+| MongoDB `eventos_interaccion` | Lineal en tráfico | Miles de millones (acotado por TTL) |
+| `telemetria_reproduccion` | Lineal en reproducciones × duración | El mayor de todos; acotado por TTL |
+| `catalogo.contenidos` | ~30/día | Decenas de miles |
+| Embeddings | 1 por contenido | Decenas de miles |
+| Aristas `VIO` en Neo4j | Usuarios × contenidos consumidos | Cientos de millones |
+
+### 14.2 Consultas críticas
+
+| Consulta | Frecuencia | Estrategia |
+|---|---|---|
+| Feed personalizado | Cada request | Precalculada en Redis; `ZREVRANGE` en O(log n + N) |
+| "Más como este" | Cada vista de artículo | Precalculada en `ranking_items_similares` |
+| Trending | Cada carga de portada | Vista materializada + ZSET |
+| CTR por estrategia | Por hora | Capa Gold; nunca toca la base operacional |
+| Registro de impresiones | Cada request | `INSERT` en la partición del mes; sin trigger de auditoría |
+
+### 14.3 Qué se particiona
+
+`recomendacion.impresiones` con particionado declarativo mensual. Las tres razones:
+
+- Todas las consultas analíticas filtran por rango de fechas → *partition pruning*.
+- La retención se implementa con `DETACH` + `DROP` de una partición, que es una operación de
+  metadatos, en lugar de un `DELETE` masivo que infla el WAL.
+- Los índices se mantienen chicos y caben en memoria.
+
+Se incluye una **partición `DEFAULT` como red de contención**: sin ella, una fila con fecha fuera
+de rango voltea la carga entera. Con ella la fila entra y la verificación la denuncia después.
+
+MongoDB: sharding por `hash(usuario_id)`. Shardear por fecha concentraría toda la escritura en el
+shard del día en curso.
+
+### 14.4 Qué se indexa y por qué
+
+Cada índice está justificado por una consulta concreta; los índices sin consulta que los use son
+costo puro.
+
+| Índice | Justificación |
+|---|---|
+| Parcial `WHERE estado = 'publicado'` | El feed nunca mira otra cosa; ocupa menos y entra mejor en caché |
+| Compuesto `(seccion_id, nivel_acceso, fecha_publicacion DESC)` | El orden sale del índice, sin `Sort` posterior |
+| **BRIN** sobre `mostrado_en` | Las filas se insertan en orden cronológico: correlación física casi perfecta. Ocupa KB donde un btree ocuparía MB |
+| GIN `jsonb_path_ops` | Operador `@>`; 2–3× más chico que el GIN por defecto |
+| GIN por defecto sobre `metadatos` | Operador `?`, que `jsonb_path_ops` no soporta |
+| HNSW sobre embeddings | Recorridos O(log n) en lugar de O(n) |
+| Parcial `WHERE clic = TRUE` | Los clics son ~4% de las filas y se consultan solos |
+
+### 14.5 Qué se precalcula
+
+Vista materializada de trending (`REFRESH CONCURRENTLY`, que requiere índice único y evita
+bloquear la consulta más caliente); vecinos semánticos y de co-ocurrencia; feeds por usuario en
+Redis; capa Gold completa.
+
+### 14.6 Qué se separa
+
+Analítico de operacional (DuckDB sobre el lake); serving de fuente de verdad (Redis); recorridos
+de relaciones (Neo4j); clickstream de catálogo (MongoDB). El siguiente paso natural sería una
+réplica de lectura de PostgreSQL para el analista.
+
+### 14.7 Compromisos, explícitos
+
+| Se gana | Se paga |
+|---|---|
+| Latencia sub-milisegundo en el feed | Frescura: el feed refleja la última corrida del pipeline |
+| Consultas analíticas sin impacto en el sitio | Consistencia eventual entre capas |
+| Cada consulta en el motor que la resuelve bien | Seis sistemas para operar |
+| Escritura barata del clickstream | Sin integridad referencial en MongoDB; hay que verificarla en el pipeline |
+| Búsqueda semántica rápida | Índices aproximados: recall < 100%, y el error es silencioso |
+
+---
+
+### 14.8 Alcance: qué está implementado y qué queda propuesto
+
+Tabla única para evitar la ambigüedad más costosa de un informe técnico: presentar como existente
+algo que solo está diseñado. Todo lo marcado **Implementado** se puede ejecutar y verificar; lo
+marcado **Propuesto** está justificado en el texto pero no corre.
+
+| Componente | Estado | Verificable con |
+|---|---|---|
+| Modelo relacional, particionado, índices, vistas | Implementado | `db/estructura/`, `db/indices_vistas/` |
+| RLS, roles, permisos por columna, auditoría | Implementado | `db/consultas/05_prueba_aislamiento.sql` y `db/consultas/06_prueba_aislamiento_api.sql` |
+| Seudonimización irreversible para el analista | Implementado | `db/seguridad/04_vistas_anonimizadas.sql` |
+| Búsqueda vectorial con prefiltrado, HNSW e IVFFlat | Implementado | `vectorial/consultas/` |
+| Modelo documental, validadores, timeseries, TTL | Implementado | `nosql/mongodb/` |
+| Usuarios y roles restringidos en MongoDB | Implementado | `nosql/mongodb/consultas/05_permisos.md` |
+| Grafo, restricciones e índices | Implementado | `nosql/neo4j/consultas/` |
+| Usuario separado en Neo4j | Implementado, **sin poder ser de solo lectura** | `nosql/neo4j/consultas/03_limitaciones_community.cypher` |
+| ACL de Redis por comando y patrón | Implementado | `nosql/redis/consultas/01_estructuras_de_serving.md` |
+| Política de solo lectura en MinIO | Implementado | `scripts/configurar_minio.sh` |
+| Lakehouse Medallion con calidad y linaje | Implementado | `analitico/` |
+| Ingesta por stream con grupos de consumo, `XACK` y escritura idempotente | Implementado | `orquestador/consumir_stream.py` |
+| Mínimo privilegio efectivo: cada consumidor con su usuario acotado | Implementado | `docker-compose.yml`, `scripts/ejecutar_duckdb.sh` |
+| API sujeta a RLS | Implementado | `db/consultas/06_prueba_aislamiento_api.sql` |
+| **Autenticación de la API** | **Propuesto** | Cabecera `X-Usuario-Id` que simula un token ya validado. La *autorización* sí está resuelta en el motor |
+| **Réplica de lectura para el analista** | **Propuesto** | §14.6 |
+| **Sharding de MongoDB** | **Propuesto** | §14.3 |
+| **Formato transaccional de tabla (Iceberg/Delta)** | **Propuesto** | §12.2 |
+| **Orquestación con reintentos (Airflow)** | **Propuesto** | §15.4 |
+| **Gestor de secretos externo** | **Propuesto** | La sal vive en `control.secretos` |
+| **Alta disponibilidad y réplicas** | **Propuesto** | §15.3 |
+
+---
+
+## 15. Conclusiones
+
+### 15.1 Qué se demostró
+
+Que el caso de uso 10 admite una solución de datos completa —conceptual, lógica, física y
+arquitectónica— donde **cada decisión responde a un patrón de consulta concreto** y no a una
+preferencia tecnológica. Los cinco motores están porque cada uno resuelve una pregunta que los
+otros cuatro resuelven mal, y eso quedó demostrado con las consultas de §10 y con la demo que muestra
+las cinco estrategias devolviendo resultados distintos sobre el mismo usuario.
+
+### 15.2 Qué resultó más valioso
+
+**Los controles que abortan, y revisar los permisos del rol en lugar de la salida del endpoint.**
+Entre unos y otros aparecieron cinco defectos reales, y **cuatro eran silenciosos**: no producían
+ningún error, solo resultados plausibles y equivocados.
+
+Los tres del pipeline de datos: un kNN que devolvía de menos sin fallar, grupos descartados en Gold
+y una capa Gold construida sobre datos de otra corrida. Ninguno habría aparecido en una revisión de
+código; los tres producían números plausibles y equivocados.
+
+La lección es directamente aplicable: **en una capa de datos para IA, el fallo silencioso es el
+modo de fallo dominante.** Un modelo entrenado sobre datos con un 5% de filas perdidas no falla,
+solo rinde peor, y nadie sabe por qué.
+
+### 15.3 Limitaciones declaradas
+
+- **No es un Lakehouse completo:** falta formato transaccional de tabla, *time travel* y catálogo
+  de metadatos.
+- **No hay orquestación:** el pipeline es un script secuencial, no un DAG con reintentos.
+- **El volumen es de demostración:** las decisiones apuntan a escalas donde estos números no
+  llegan; el `EXPLAIN` muestra la *forma* del plan, no tiempos representativos.
+- **La seudonimización no equivale a anonimización:** si se compromete la clave del HMAC, un
+  atacante puede probar identificadores candidatos y vincular los registros.
+- **La auditoría no es inmutable** frente a un superusuario.
+- **Los datos son sintéticos.** La estructura latente (afinidades, popularidad) fue puesta a mano,
+  así que los resultados de las estrategias muestran que el diseño funciona, no qué estrategia
+  ganaría con datos reales.
+- **No hay alta disponibilidad:** una sola instancia de cada motor.
+
+### 15.4 Próximos pasos
+
+1. Orquestar el pipeline con Airflow, con reintentos y alertas sobre los controles de calidad.
+2. Réplica de lectura de PostgreSQL para aislar la carga analítica.
+3. Migrar Silver a Apache Iceberg para obtener *time travel* y escrituras concurrentes.
+4. Búsqueda híbrida literal + semántica con *reciprocal rank fusion*.
+5. Medir el recall real de HNSW contra el kNN exacto y ajustar `ef_search` con ese dato.
+6. Reemplazar Redis Streams por Kafka cuando el volumen de ingesta lo justifique.
