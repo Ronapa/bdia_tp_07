@@ -11,11 +11,11 @@ newsletters y galerías).
 
 | Integrante | Aportes principales |
 |---|---|
-| *Federica Pavese* | *(completar)* |
-| *Leandro Saraco* | *(completar)* |
-| *Maximiliano Lulic* | *(completar)* |
-| *Pablo Salvagni* | *(completar)* |
-| *Rodrigo Parra* | *(completar)* |
+| *Federica Pavese* | Índices, vistas y seguridad en PostgreSQL; embeddings, índices vectoriales y consultas de similitud. |
+| *Leandro Saraco* | Generador de datos sintéticos, datos de referencia, carga y verificaciones de PostgreSQL; muestras, informe y guía práctica. |
+| *Maximiliano Lulic* | Infraestructura inicial con Docker Compose; modelo documental y carga del clickstream en MongoDB; grafo de recomendación en Neo4j. |
+| *Pablo Salvagni* | Conciliación Silver/Gold, serving en Redis y orquestación; stream de ingesta, API, consultas, README y diagramas finales. |
+| *Rodrigo Parra* | Informe y modelos iniciales; schemas y modelo relacional; MinIO, capas Bronze/Silver/Gold y demo de recomendaciones. |
 
 ---
 

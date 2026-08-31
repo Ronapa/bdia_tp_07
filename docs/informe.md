@@ -11,11 +11,11 @@
 
 | Integrante | Usuario de GitHub | Aportes principales |
 |---|---|---|
-| Federica Pavese | `federica-pavese` | Índices, vistas y vista materializada del modelo relacional. Roles, permisos, RLS, auditoría y seudonimización en PostgreSQL. |
-| Leandro Saraco | `lsaraco` | *(completar)* |
-| Maximiliano Lulic | `maxisoadgh` | *(completar)* |
-| Pablo Salvagni | `PabloSalvagni` | Conciliación de calidad Silver/Gold, capa de serving en Redis y orquestación del pipeline. Consumidor del stream de ingesta y consultas SQL representativas. |
-| Rodrigo Parra | `Ronapa` | *(completar)* |
+| Federica Pavese | `federica-pavese` | Índices, vistas y seguridad en PostgreSQL; embeddings, índices vectoriales y consultas de similitud. |
+| Leandro Saraco | `lsaraco` | Generador de datos sintéticos, datos de referencia, carga y verificaciones de PostgreSQL; muestras, informe y guía práctica. |
+| Maximiliano Lulic | `maxisoadgh` | Infraestructura inicial con Docker Compose; modelo documental y carga del clickstream en MongoDB; grafo de recomendación en Neo4j. |
+| Pablo Salvagni | `PabloSalvagni` | Conciliación Silver/Gold, serving en Redis y orquestación; stream de ingesta, API, consultas, README y diagramas finales. |
+| Rodrigo Parra | `Ronapa` | Informe y modelos iniciales; schemas y modelo relacional; MinIO, capas Bronze/Silver/Gold y demo de recomendaciones. |
 
 ---
 
